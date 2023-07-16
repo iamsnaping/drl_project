@@ -1,0 +1,1 @@
+epochs :0 22.279953 17.661856 tensor(19.6079, device='cuda:0')

@@ -1,0 +1,1 @@
+epochs :0 107.25655 10.135186 tensor(36.3404, device='cuda:0', grad_fn=<DivBackward0>)

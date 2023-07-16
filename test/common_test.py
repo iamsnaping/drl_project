@@ -3,7 +3,7 @@ import os
 
 import numpy as np
 import pandas as pd
-from model.enviroment import *
+from mymodel.enviroment import *
 
 
 root_path='D:\\eyedata'
