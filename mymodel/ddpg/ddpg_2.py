@@ -153,47 +153,55 @@ def get_scores(goal_p,goal_n,s,s_,is_end):
 
 
 # Monte Carlo
-def get_scores(goal_n,last_action,action,sta_sco=None):
+def get_scores(goal_n,last_action,action,is_end,epochs):
     l1=np.linalg.norm(last_action-goal_n)
+    # print(action,goal_n)
     l2=np.linalg.norm(action-goal_n)
     ll=l1-l2
-    if sta_sco is not None:
-        if l2<75:
-            pass
+    flag=False
+    if l2<75:
+        l=10
+        flag=True
+    elif l1 <75 and l2>=75:
+        l=-20
     else:
-        if l2<75:
-            l=5
-        elif l1 <75 and l2>75:
-            l=-6
-        else:
-            l=np.tanh(ll*0.02)
-            if l<0:
-                l*=1.1
-        if l2<75 :
-            end_reward=2
-        else:
-            end_reward=-3.5
+        l=np.tanh(ll*0.015)*0.1
+        if l<0:
+            l*=1.5
+    return l,flag
 
 '''
 undo
 
 
 
-# goal_last goal_present last_action action is_end for action
-undo
+# state,near_state,last_goal_list,last_action,action,isend,rewards,goal,i for action
+done
 '''
 
 def get_scores_trajectory(trajectory):
     new_tra=[]
     #new ans-> state,near_state,last_goal_list,last_goal,goal,isend
     tra_len=len(trajectory)
+    stable_scores=0
+    stable_flag=False
+    rewards=0
     with torch.no_grad():
         for i in range(tra_len-1,-1,-1):
             state,near_state,last_goal_list,goal,isend,action,last_action=trajectory[i]
-            state_,near_state_,last_goal_list_,goal_,isend_,action_,last_action_=trajectory[i+1]
-            reward=get_scores(goal,last_action,action,isend_,tra_len)
+            reward,flag=get_scores(goal,last_action,action,isend,tra_len)
+            if not flag:
+                rewards=rewards*0.9+reward
+            else:
+                if not stable_flag:
+                    stable_flag=True
+                    stable_scores=rewards
+                else:
+                    rewards=stable_scores
+            if np.isnan(rewards):
+                breakpoint()
             # print(len(last_goal_list_),len(last_goal_list),last_goal_list_,last_goal_list)
-            new_tra.append([state,state_,near_state,near_state_,last_goal_list_,last_action,action,isend_,reward,goal,i,i+1])
+            new_tra.append([state,near_state,last_goal_list,last_action,action,isend,rewards,goal,i])
     return new_tra
 
 def train_epoch(agent, lr, epochs, batch_size,device,mode,store_path=None,is_evaluate=False,json_path=None,value_path=None,critic_loss_path=None):
@@ -242,10 +250,6 @@ def train_epoch(agent, lr, epochs, batch_size,device,mode,store_path=None,is_eva
         evalua_scores_end=[]
         evalue_reward=[]
         evalua_reward_end=[]
-        # tr=[0 for i in range(6)]
-        # trt=0
-        # trr=[0 for i in range(7)]
-        # tn=[0 for i in range(5)]
         begin_flag=True
         update_flag=0
         actor_update_flags=0
@@ -278,25 +282,24 @@ def train_epoch(agent, lr, epochs, batch_size,device,mode,store_path=None,is_eva
                     scores=0
                     new_trajectory=get_scores_trajectory(trajectory)
                     for tra in new_trajectory:
-                        # last_action_list,action,reward,goal
+                        # state,near_state,last_goal_list,last_action,action,isend,rewards,goal,i
                         #0:state,
-                        # 1:state_,
-                        # 2:near_state,
-                        # 3:near_state_,
-                        # 4:last_goal_list_,
-                        # 5:last_action,
-                        # 6:action,
-                        # 7:isend_,
-                        # 8:reward
+                        # 1:near_state,
+                        # 2:last_goal_list_,
+                        # 3:last_action,
+                        # 4:action,
+                        # 5:isend_,
+                        # 6:expectation
+                        # 7:goal
                         # print(tra[4])
                         # breakpoint()
-                        a,b,c,d,e=dp(tra[4]),dp(tra[5]),dp(tra[6]),dp(tra[8]),dp(tra[9])
-                        if tra[7]==1:
-                            evalua_scores_end.append(np.linalg.norm(tra[6]-tra[9]))
-                            evalua_reward_end.append(dp(tra[8]))
-                        elif tra[7]==0:
-                            evalue_scores.append(np.linalg.norm(tra[6]-tra[9])-np.linalg.norm(tra[5]-tra[9]))
-                            evalue_reward.append(dp(tra[8]))
+                        a,b,c,d,e=dp(tra[2]),dp(tra[3]),dp(tra[4]),dp(tra[6]),dp(tra[7])
+                        if tra[5]==1:
+                            evalua_scores_end.append(np.linalg.norm(tra[7]-tra[4]))
+                            evalua_reward_end.append(dp(tra[6]))
+                        elif tra[5]==0:
+                            evalue_scores.append(np.linalg.norm(tra[4]-tra[7])-np.linalg.norm(tra[3]-tra[7]))
+                            evalue_reward.append(dp(tra[6]))
                         # print(a,b,c,d)
                         jdr.add(a,b,c,d,e,K)
                         # print(tra)
@@ -314,28 +317,21 @@ def train_epoch(agent, lr, epochs, batch_size,device,mode,store_path=None,is_eva
                     if not is_training:
                         with open(reward_path,'a') as f:
                             f.write('begin to train\n')
-                    state,state_,near_state,near_state_,last_goal_list_,lastaction,action,isend_,reward,ep,ep1 = agent.memo.sample(batch_size)
+                    state,near_state,last_goal_list_,lastaction,action,isend_,reward,ep = agent.memo.sample(batch_size)
                     # t2=time.process_time()
                     state=state.to(device)
-                    state_=state_.to(device)
                     near_state=near_state.to(device)
-                    near_state_=near_state_.to(device)
                     last_goal_list_=last_goal_list_.to(device)
                     lastaction=lastaction.to(device)
                     action=action.to(device)
                     done=isend_.to(device)
                     reward=reward.to(device)  
-                    ep=ep.to(device)   
-                    ep1=ep1.to(device)
-                    t_actions = agent.actor_net.target(last_goal_list_,state_,near_state_,action)
-                    max_q_values = agent.critic_net.target(action,last_goal_list_,torch.concat([state_,near_state_],dim=-1),torch.cat([t_actions,ep1],dim=-1))
-                    y = reward + (1 - done) * agent.actor_net.GAMMA * max_q_values
+                    ep=ep.to(device)
                     q_values = agent.critic_net.online(lastaction,last_goal_list_,torch.concat([state,near_state],dim=-1),torch.cat([action,ep],dim=-1))
-                    l1 = loss(y, q_values)
+                    l1 = loss(reward, q_values)
                     trainer_2.zero_grad()
                     l1.backward()
                     trainer_2.step()
-
                     clp.add(l1.cpu().detach().numpy().tolist())
                     if K>0 and actor_update_flags==2:
                         actions = agent.actor_net.online(last_goal_list_,state,near_state,lastaction)
@@ -351,10 +347,6 @@ def train_epoch(agent, lr, epochs, batch_size,device,mode,store_path=None,is_eva
                     agent.actor_net.update_params()
                     agent.critic_net.update_params()
         if is_evaluate==False:
-            # if is_training:
-            #     schedule2.step()
-            #     if K>1:
-            #         schedule1.step()
             t_reward_len+=1
             if t_reward_len>=1000:
                 t_reward_len%=1000
@@ -377,21 +369,21 @@ def train_epoch(agent, lr, epochs, batch_size,device,mode,store_path=None,is_eva
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser()
-    parser.add_argument('-load_policy',type=str,default='5_policy_1last_move5')
-    parser.add_argument('-store',type=str,default='1last_move5')
-    parser.add_argument('-load_critic',type=str,default='5_critic_1last_move5')
+    parser.add_argument('-load_policy',type=str,default='5_policy_1last_move_5')
+    parser.add_argument('-store',type=str,default='ddpg_2')
+    parser.add_argument('-load_critic',type=str,default='5_policy_1last_move_5')
     parser.add_argument('-cuda',type=str,default='cuda:3')
     parser.add_argument('-mode',type=int,default=1)
     parser.add_argument('-eval',type=bool,default=False)
     parser.add_argument('-net',type=int,default=1)
+    parser.add_argument('-sup',type=str,default='50')
     # net1- >base net
     args=parser.parse_args()
     agent=Agent(buffer_maxlen=50000,mode=args.net)
+    print(args.sup)
     if args.eval==False:
         actor_load=os.path.join('/home/wu_tian_ci/drl_project/mymodel/ddpg/pretrain_data/policy/',args.load_policy)
         actor_load=os.path.join(actor_load,'1/5000_03/PolicyNet.pt')
-        critic_load=os.path.join('/home/wu_tian_ci/drl_project/mymodel/ddpg/pretrain_data/critic/',args.load_critic)
-        critic_load=os.path.join(critic_load,'1/4000_03/CriticNet.pt')
         agent.actor_net.online.load_state_dict(torch.load(actor_load))
         agent.actor_net.target.load_state_dict(torch.load(actor_load))
         # agent.critic_net.online.load_state_dict(torch.load(critic_load))
@@ -400,11 +392,8 @@ if __name__=='__main__':
         agent.critic_net.target.apply(weight_init)
     else:
         actor_load='/home/wu_tian_ci/drl_project/mymodel/ddpg/pretrain_data/ddpg_train/1last_move5/ActorNet.pt'
-        critic_load='/home/wu_tian_ci/drl_project/mymodel/ddpg/pretrain_data/ddpg_train/1last_move5/CriticNet.pt'
         agent.actor_net.online.load_state_dict(torch.load(actor_load))
         agent.actor_net.target.load_state_dict(torch.load(actor_load))
-        agent.critic_net.online.load_state_dict(torch.load(critic_load))
-        agent.critic_net.target.load_state_dict(torch.load(critic_load))
     device = torch.device(args.cuda if torch.cuda.is_available() else 'cpu')
     store_path=os.path.join('/home/wu_tian_ci/drl_project/mymodel/ddpg/pretrain_data/ddpg_train/',args.store)
     json_path=os.path.join('/home/wu_tian_ci/drl_project/mymodel/ddpg/pretrain_data/json_path/',args.store)
@@ -416,4 +405,4 @@ if __name__=='__main__':
         os.makedirs(value_path)
     if not os.path.exists(critic_loss_path):
         os.makedirs(critic_loss_path)
-    train_epoch(agent, 0.03, 500, 1024,device,args.mode,store_path,is_evaluate=args.eval,json_path=json_path,value_path=value_path,critic_loss_path=critic_loss_path)
+    train_epoch(agent, 0.03, 1000, 1024,device,args.mode,store_path,is_evaluate=args.eval,json_path=json_path,value_path=value_path,critic_loss_path=critic_loss_path)

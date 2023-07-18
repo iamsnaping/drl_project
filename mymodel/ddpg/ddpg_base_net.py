@@ -146,19 +146,31 @@ class PolicyBaseNet(nn.Module):
 
 
 class PolicyBaseNet2(nn.Module):
-    def __init__(self,action_n,state_n,mouse_n ,num_layer,output_n):
+    # 6 20 10 2 10 3
+    def __init__(self,action_n,state_n,n_state_n,mouse_n ,num_layer,output_n):
         super(PolicyBaseNet2, self).__init__()
-        self.s1=nn.Sequential(nn.Linear(action_n+state_n+mouse_n,(action_n+state_n+mouse_n)*3),nn.LayerNorm((action_n+state_n+mouse_n)*3),nn.Tanh())
-        self.net=PolicyModule((action_n+state_n+mouse_n)*3,(action_n+state_n+mouse_n)*2,num_layer)
-        self.s2=nn.Sequential(nn.Linear((action_n+state_n+mouse_n)*2,output_n))
-        self.a_meta=nn.Sequential(nn.Linear(action_n,output_n))
-        self.m_meta=nn.Sequential(nn.Linear(mouse_n,output_n))
+        encoder_nums=int(num_layer/2+0.5)
+        decoder_nums=num_layer-encoder_nums
 
-    def forward(self,state,action,mouse):
-        s1=self.s1(torch.concat([state,action,mouse],dim=-1))
-        s2=torch.concat([action,mouse],dim=-1)
-        n=self.net(s1,state,s2)
-        return torch.tanh(self.s2(n)+self.a_meta(action)+self.m_meta(mouse))*100
+        self.encoder=PolicyModule2((action_n+state_n+mouse_n+n_state_n),(action_n+state_n+mouse_n+n_state_n),encoder_nums)
+        out_c=(encoder_nums+1)*((action_n+state_n+mouse_n+n_state_n))
+        self.decoder=PolicyModule2(out_c,mouse_n,decoder_nums)
+        out_c=out_c+decoder_nums*mouse_n
+        self.s2=PolicyResBlock2(out_c,output_n)
+        self.a_meta=PolicyResBlock2(action_n,output_n)
+        self.m_meta=PolicyResBlock2(mouse_n,output_n)
+        self.s_meta=PolicyResBlock2(state_n,output_n)
+        self.ns_meta=PolicyResBlock2(n_state_n,output_n)
+        self.t_meta=PolicyResBlock2((action_n+state_n+mouse_n+n_state_n),output_n)
+
+
+    def forward(self,a,b,c,d):
+        # s1=self.s1(torch.concat([a,b,c,d],dim=-1))
+        s1=torch.concat([a,b,c,d],dim=-1)
+        n=self.encoder(s1,s1)
+        n=self.decoder(n,d)
+        # print(n.shape)
+        return torch.tanh(self.s2(n)+self.m_meta(d))
 
 
 

@@ -232,7 +232,7 @@ if __name__ == "__main__":
         os.makedirs(store_path2)
     if args.net=='net1':
         ##self,action_n,state_n,mouse_n ,num_layer,output_n 6,10,2,7,2
-        net=BaseNet(38,2,10,2)
+        net=PolicyBaseNet2(6,20,10,2,7,2)
     else:
         net=PolicyBaseNet(6,20,10,2,7,2)
     train_dataset=dataset_loader_policy(train_path)

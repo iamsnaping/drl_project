@@ -97,40 +97,74 @@ class ReplayBuffer():
     def buffer_len(self):
         return len(self.buffer)
 
-class ActorNet(BaseNet):
+
+
+class ReplayBuffer2():
+    def __init__(self, buffer_maxlen):
+        self.buffer = []
+        self.buffer_nums=0
+        self.max_len=buffer_maxlen
+        self.capacity=0
+
+    def push(self, data):
+        if self.capacity<self.max_len:
+            self.buffer.append(data)
+            self.capacity+=1
+        else:
+            self.buffer[self.buffer_nums]=data
+            self.buffer_nums=(self.buffer_nums+1)%self.max_len
+
+    def sample(self, batch_size):
+        # state,,near_state,,last_goal_list_,last_action,action,isend,reward
+        state_list=[]
+        near_state_list=[]
+        last_state_list=[]
+        last_action_list=[]
+        action_list=[]
+        isend_list=[]
+        reward_list=[]
+        ep_list=[]
+        batch = random.sample(self.buffer, batch_size)
+        for experience in batch:
+            state,near_state,last_goal_list_,last_action,action,isend_,reward,goal,ep= experience
+            # state, action, reward, next_state, done
+            state_list.append([state])
+            near_state_list.append([near_state])
+            last_state_list.append([last_goal_list_])
+            last_action_list.append([last_action])
+            action_list.append([action])
+            isend_list.append([isend_])
+            reward_list.append([reward])
+            ep_list.append([ep])
+            # print(last_state_list)
+        return torch.as_tensor(state_list,dtype=torch.float32), \
+               torch.as_tensor(near_state_list,dtype=torch.float32),\
+               torch.as_tensor(last_state_list,dtype=torch.float32),\
+               torch.as_tensor(np.array(last_action_list),dtype=torch.float32), \
+               torch.as_tensor(np.array(action_list),dtype=torch.float32),\
+               torch.as_tensor(isend_list,dtype=torch.float32).unsqueeze(-1),\
+               torch.as_tensor(reward_list,dtype=torch.float32).unsqueeze(-1),\
+               torch.as_tensor(ep_list,dtype=torch.float32).unsqueeze(-1)
+    def __len__(self):
+        return len(self.buffer)
+
+
+
+
+class ActorNet(PolicyBaseNet):
     def __init__(self,action_n,state_n,n_state_n,mouse_n ,num_layer,output_n):
         super(ActorNet, self).__init__(action_n,state_n,n_state_n,mouse_n ,num_layer,output_n)
 
-    def forward(self,a,b,c,d):
-        s1=torch.concat([a,b,c,d],dim=-1)
-        # print(a.shape,b.shape,c.shape,d.shape)
-        n=self.net(s1,s1)
-        return torch.clamp(self.s2(n)+self.a_meta(a)+self.s_meta(b)+self.ns_meta(c)+self.m_meta(d)+self.t_meta(s1),min=-100,max=100)
 
     def act(self, last_goal,state,near_state,last_action,epochs):
         action = self(last_goal,state,near_state,last_action)
-        noise = torch.tensor(np.random.normal(loc=0, scale=(10/(epochs+1))**2),
+        noise = torch.tensor(np.random.normal(loc=0, scale=(5/(epochs+1))**2),
                              dtype=torch.float32)
         if self.is_noise:
             action = action+noise
         return action.squeeze().cpu().detach().numpy()
 
-
-
-class ActorNet(BaseNet):
-    def __init__(self,in_n,ou_n,layer_n,meta_n):
-        super(ActorNet, self).__init__(in_n,ou_n,layer_n,meta_n)
-
-
-    def act(self, last_goal,state,near_state,last_action,epochs):
-        action = self(last_goal,state,near_state,last_action)
-        noise = torch.tensor(np.random.normal(loc=0, scale=(10/(epochs+1))**2),
-                             dtype=torch.float32)
-        if self.is_noise:
-            action = action+noise
-        return action.squeeze().cpu().detach().numpy()
-
-class ActorNet2(PolicyBaseNet):
+class ActorNet2(PolicyBaseNet2):
     def __init__(self,action_n,state_n,n_state_n,mouse_n ,num_layer,output_n):
         super(ActorNet2, self).__init__(action_n,state_n,n_state_n,mouse_n ,num_layer,output_n)
 
@@ -141,11 +175,11 @@ class ActorNet2(PolicyBaseNet):
         return self.s2(n)+self.m_meta(d)
 
     def act(self, last_goal,state,near_state,last_action,epochs):
-        action = self(last_goal,state,near_state,last_action)
+        action = self(last_goal,state,near_state,last_action)*200
         noise = torch.tensor(np.random.normal(loc=0, scale=(5/(epochs+1))**2),
                              dtype=torch.float32)
         if self.is_noise:
-            action = action + noise
+            action = last_action+action + noise
         return action.squeeze().cpu().detach().numpy()
 
 
@@ -159,8 +193,8 @@ class Critic_Net:
     def __init__(self,lr, tao):
         # self.target = CriticNet(40,1,10,2)
         # self.online = CriticNet(40,1,10,2)
-        self.target=ActorNet2(2,30,6,3,5,1)
-        self.online=ActorNet2(2,30,6,3,5,1)
+        self.target=ActorNet(2,30,6,3,5,1)
+        self.online=ActorNet(2,30,6,3,5,1)
         self.trainer = torch.optim.Adam(self.online.parameters(), lr=lr)
         self.tao = tao
 
@@ -178,8 +212,8 @@ class Actor_Net:
             self.target = ActorNet2(6,20,10,2,7,2)
             self.online = ActorNet2(6,20,10,2,7,2)
         else:
-            self.target = ActorNet(38,2,10,2)
-            self.online = ActorNet(38,2,10,2)
+            self.target = ActorNet(6,20,10,2,7,2)
+            self.online = ActorNet(6,20,10,2,7,2)
         self.online.is_noise = True
         self.target.is_noise = False
         self.trainer = torch.optim.Adam(self.online.parameters(), lr=lr)
@@ -193,7 +227,10 @@ class Actor_Net:
 
 class Agent:
     def __init__(self,buffer_maxlen=50000, lr=0.03, GAMMA=0.9,tao=0.9,mode=1):
-        self.memo = ReplayBuffer(buffer_maxlen)
+        if mode==1:
+            self.memo = ReplayBuffer(buffer_maxlen)
+        else:
+            self.memo=ReplayBuffer2(buffer_maxlen)
         self.actor_net = Actor_Net(lr,tao,GAMMA,mode)
         self.critic_net = Critic_Net(lr,tao)
         self.critic_net.online.apply(weight_init)

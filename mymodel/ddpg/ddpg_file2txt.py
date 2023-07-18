@@ -91,10 +91,6 @@ class FileToTxt:
         self.k1=0.
         self.k2=0
         self.mode=3
-        self.max_interval=0.
-        self.min_interval=np.inf
-        self.total_interval=0.
-        self.interval_nums=0
         self.max_x=0.
         self.max_y=0.
         self.a_max_x=0.
@@ -172,10 +168,6 @@ class FileToTxt:
         flag=True
         # self.move_list.clear()
         self.move_list=[]
-        max_interval=0.
-        min_interval=np.inf
-        total_interval=0.
-        interval_nums=0
         while flag:
             states_list,near_state_list,last_goal_list,last_action_list,goal_list,is_end_list=[],[],[],[],[],[]
             self.get_goal()
@@ -256,7 +248,6 @@ class FileToTxt:
                     if np.linalg.norm(goal_)<50:
                         goal_[0],goal_[1]=0,0
                     points_idx+=1
-                    self.interval_nums+=1.
                     goal_[0],goal_[1]=goal_[0]+d[0],goal_[1]+d[1]
                     self.trans_file(a,b,c,d,goal_,f)
                     self.total_num+=1
@@ -289,9 +280,6 @@ class FileToTxt:
             self.last_goal_list.append(self.goal[1])
             begin_idx=end_idx
 
-        # print(max_interval,min_interval,total_interval/interval_nums)
-
-
 
     def get_states3policy_(self):
         self.get_goal()
@@ -310,10 +298,6 @@ class FileToTxt:
         flag=True
         # self.move_list.clear()
         self.move_list=[]
-        max_interval=0.
-        min_interval=np.inf
-        total_interval=0.
-        interval_nums=0
         while flag:
             states_list,near_state_list,last_goal_list,last_action_list,goal_list,is_end_list=[],[],[],[],[],[]
             self.get_goal()
@@ -380,22 +364,52 @@ class FileToTxt:
                 # list_len+=1
             begin_=self.last_goal_list[-2:]
             radi=np.sqrt((self.goal[0]-self.last_goal_list[-2:][0])**2+(self.goal[1]-self.last_goal_list[-2:][1])**2)/2
-            p_x,p_y=self.get_gaussian_points_begin(self.goal,max(100,radi),15)
-            for i in range(15):
-                a=states_list[-1]
-                b=near_state_list[-1]
-                c=last_goal_list[-1]
-                f=is_end_list[-1]
-                e=goal_list[-1]
-                d=[p_x[i],p_y[i]]
-                goal_=[e[0]-d[0],e[1]-d[1]]
-                if np.linalg.norm(goal_)>100:
-                    goal_=(np.array(goal_)/np.linalg.norm(goal_)*100).tolist()
-                if np.linalg.norm(goal_)<50:
-                    goal_[0],goal_[1]=0,0
-                goal_[0],goal_[1]=goal_[0]+d[0],goal_[1]+d[1]
-                self.trans_file(a,b,c,d,goal_,f)
-                self.total_num+=1
+
+
+            low_dis=list_len*0.2
+            if low_dis<1:
+                low_dis=0
+            for i in range(list_len):
+                a=states_list[i]
+                b=near_state_list[i]
+                c=last_goal_list[i]
+                f=is_end_list[i]
+                e=goal_list[i]
+                p_x,p_y=self.get_random_points(begin_,goal_list[-1])
+                dis_max=200
+
+                aa,bb,cc=[],[],[]
+                for i in range(len(a)):
+                    if i&1==0:
+                        aa.append((a[i]-1920)/1920)
+                    else:
+                        aa.append((a[i]-540)/540)
+
+                for i in range(len(b)):
+                    if i&1==0:
+                        bb.append((b[i]-1920)/1920)
+                    else:
+                        bb.append((b[i]-540)/540)
+
+                for i in range(len(c)):
+                    if i&1==0:
+                        cc.append((c[i]-1920)/1920)
+                    else:
+                        cc.append((c[i]-540)/540)
+
+
+                if low_dis>i:
+                    dis_max=50
+                for k in range(len(p_x)):
+                    d=[p_x[k],p_y[k]]
+                    dd=[(d[0]-1920)/1920,(d[1]-540)/540]
+                    goal_=[e[0]-d[0],e[1]-d[1]]
+                    if np.linalg.norm(goal_)>dis_max:
+                        goal_=(np.array(goal_)/np.linalg.norm(goal_)*dis_max).tolist()
+                        goal_[0]/=200
+                        goal_[1]/=200
+                    self.trans_file(aa,bb,cc,dd,goal_,f)
+                    self.total_num+=1
 
             if end_idx>=self.cfile_len:
                 flag=False
@@ -404,101 +418,27 @@ class FileToTxt:
             self.last_goal_list.append(self.goal[0])
             self.last_goal_list.append(self.goal[1])
             begin_idx=end_idx
-        # print(max_interval,min_interval,total_interval/interval_nums)
 
 
-
-    def get_states3policy_interval_d(self,interval_len):
-        self.get_goal()
-        self.last_goal_list.append(self.goal[0])
-        self.last_goal_list.append(self.goal[1])
-        self.last_goal_list.append(self.goal[2])
-        self.get_goal()
-        self.last_goal_list.append(self.goal[0])
-        self.last_goal_list.append(self.goal[1])
-        self.last_goal_list.append(self.goal[2])
-        self.get_goal()
-        self.last_goal_list.append(self.goal[0])
-        self.last_goal_list.append(self.goal[1])
-        self.last_goal_list.append(self.goal[2])
-        begin_idx=self.goal_nums
-        flag=True
-        self.move_list.clear()
-        self.move_list=[]
-
-        while flag:
-            self.get_goal()
-            end_idx=self.goal_nums
-            x,y=-1,-1
-            last_goal=self.last_goal_list[-9:].copy()
-            states=[]
-            self.move_list=[]
-            # self.k1=0
-            self.k2+=1
-            is_trans=False
-            for i in range(begin_idx,end_idx):
-                row=self.df.iloc[i]
-                increase_=False
-                if len(row)<5:
-                    self.nums+=1
-                    continue
-                if np.isnan(row[5]) or np.isnan(row[1]) or np.isnan(row[2]) or np.isnan(row[3]) or np.isnan(row[4]):
-                    self.nums+=1
-                    continue
-                if x==-1 and y==-1:
-                    x,y=int(row[1]/120+0.5),int(row[2]/120+0.5)
-                    self.move_list.append([x,y])
-                    increase_=True
-                else:
-                    x1,y1=int(row[1]/120+0.5),int(row[2]/120+0.5)
-                    if x!=x1 or y!=y1:
-                        x=x1
-                        y=y1
-                        self.move_list.append([x,y])
-                        increase_=True
-                        self.k1+=1
-                states=self.get_s()
-                isend=0
-                if (i==end_idx-1) and (end_idx>=self.cfile_len-5):
-                    isend=1
-                if isend or (increase_ and len(states)!=0):
-                    if len(states)!=0 and len(self.move_list)>=interval_len:
-                        self.isend_total+=isend
-                        is_trans=True
-                        self.trans_file(states,last_goal,self.goal,[isend])
-                        self.total_num+=1
-                        # print(isend,i,end_idx,self.cfile_len,self.move_list,self.files[self.current_file])
-            if not is_trans:
-                self.trans_file(states,last_goal,self.goal,[isend])
-            if end_idx>=self.cfile_len-5:
-                break
-            begin_idx=end_idx
-            self.last_goal_list.append(self.goal[0])
-            self.last_goal_list.append(self.goal[1])
-            self.last_goal_list.append(self.goal[2])
-            # print(end_idx,self.cfile_len)
-            if end_idx>=self.cfile_len:
-                flag=False
-                
 
     def get_random_points(self,begin_goal,end_goal):
         begin_goal=np.array(begin_goal)
         end_goal=np.array(end_goal)
         mid_points=((end_goal+begin_goal)/2).tolist()
         # 半径 扇区 每个扇区点的数目
-        radium=[0,100,250,500,1000,2000]
-        section=[4,4,5,8,8]
-        nums=[10,10,15,20,20]
+        radium=[0,200,500,1000,2000]
+        section=[16,8,8,8]
+        nums=[3,3,3,3]
         x=[]
         y=[]
-        for i in range(5):
+        for i in range(4):
             for j in range(section[i]):
                 points_r=(np.random.rand(nums[i])*(radium[i+1]-radium[i])+radium[i]).tolist()
                 angles=(np.random.rand(nums[i])*(np.pi*2/section[i])+j*np.pi*2/section[i]).tolist()
                 points_x,points_y=[],[]
                 for k in range(nums[i]):
                     points_x.append(float(np.cos(angles[k])*points_r[k]))
-                    points_y.append(float(np.sin(angles[k])*points_r[k]))
+                    points_y.append(float(np.sin(angles[k])*points_r[k])*0.5)
                 x.extend(points_x)
                 y.extend(points_y)
         return x,y
@@ -543,73 +483,6 @@ class FileToTxt:
         x1,y1=np.random.multivariate_normal([0,0],conv,points_num).T
         x1,y1=x1+begin_goal[0],y1+begin_goal[1]
         return x1.tolist(),y1.tolist()
-
-
-    def get_states3policy_interval(self):
-        self.get_goal()
-        self.last_goal_list.append(self.goal[0])
-        self.last_goal_list.append(self.goal[1])
-        # self.last_goal_list.append(self.goal[2])
-        self.get_goal()
-        self.last_goal_list.append(self.goal[0])
-        self.last_goal_list.append(self.goal[1])
-        # self.last_goal_list.append(self.goal[2])
-        self.get_goal()
-        self.last_goal_list.append(self.goal[0])
-        self.last_goal_list.append(self.goal[1])
-        # self.last_goal_list.append(self.goal[2])
-        begin_idx=self.goal_nums
-        flag=True
-        self.move_list.clear()
-        self.move_list=[]
-
-        while flag:
-            self.get_goal()
-            end_idx=self.goal_nums
-            x,y=-1,-1
-            last_goal=self.last_goal_list[-9:].copy()
-            states=[]
-            self.move_list=[]
-            # self.k1=0
-            self.k2+=1
-            for i in range(begin_idx,end_idx):
-                row=self.df.iloc[i]
-                if len(row)<5:
-                    self.nums+=1
-                    continue
-                if np.isnan(row[5]) or np.isnan(row[1]) or np.isnan(row[2]) or np.isnan(row[3]) or np.isnan(row[4]):
-                    self.nums+=1
-                    continue
-                if x==-1 and y==-1:
-                    x,y=int(row[1]/120+0.5),int(row[2]/120+0.5)
-                    self.move_list.append([x,y])
-                else:
-                    x1,y1=int(row[1]/120+0.5),int(row[2]/120+0.5)
-                    if x!=x1 or y!=y1:
-                        x=x1
-                        y=y1
-                        self.move_list.append([x,y])
-                        self.k1+=1
-            states=self.get_s()
-            isend=0
-            if (end_idx>=self.cfile_len-5):
-                isend=1
-            if len(states)!=0:
-                self.isend_total+=isend
-                self.trans_file(states,last_goal,self.goal,[isend])
-                self.total_num+=1
-                    # print(isend,i,end_idx,self.cfile_len,self.move_list,self.files[self.current_file])
-            if end_idx>=self.cfile_len-5:
-                break
-            begin_idx=end_idx
-            self.last_goal_list.append(self.goal[0])
-            self.last_goal_list.append(self.goal[1])
-            self.last_goal_list.append(self.goal[2])
-            # print(end_idx,self.cfile_len)
-            if end_idx>=self.cfile_len:
-                flag=False
-
-
 
     def get_states4critic(self):
         self.get_goal()
@@ -899,22 +772,19 @@ def get_file_paths(p=None):
         dirs.append(d)
     return dirs
 
-# mode ,the length of eye moving  interval_len,only the when move_list' s length longer than that begin to record
-def pretrain_save_file(name,type_,mode,interval_len=None):
-    print(type_,mode,interval_len)
+# mode ,the length of eye moving  
+def pretrain_save_file(name,type_,mode=None):
     # schemes=['s1','s2','s3','s4']
     schemes=['s1']
-    # print(interval_len)
     for scheme in schemes:
         # print(f'schemes {scheme}')
         dirs=get_file_paths(scheme)
         random.shuffle(dirs)
         ft=FileToTxt()
         ft.mode=mode
-        # p='/home/wu_tian_ci/eyedata/mixed/3_4policy_interval/'
+
         p=os.path.join('/home/wu_tian_ci/eyedata/mixed/',name+str(mode))
-        if interval_len is not None:
-            p=p+str(interval_len)
+
         # p=os.path.join()
         p=os.path.join(p,scheme)
         if not os.path.exists(p):
@@ -927,11 +797,7 @@ def pretrain_save_file(name,type_,mode,interval_len=None):
         store_flag=True
         for i in tqdm(range(ft.files_len)):
             ft.load_df(i)
-            if type_==wtuc.POLICY_INTERVAL_D:
-                ft.get_states3policy_interval_d(interval_len)
-            elif type_==wtuc.POLICY_INTERVAL:
-                ft.get_states3policy_interval()
-            elif type_==wtuc.POLICY:
+            if type_==wtuc.POLICY:
                 ft.get_states3policy()
             elif type_==wtuc.CRITIC:
                 ft.get_states4critic()
@@ -955,19 +821,6 @@ def pretrain_save_file(name,type_,mode,interval_len=None):
         ft.json_data.clear()
         ft.trans_nums=0
         ft.total_num=0
-
-        # print(ft.isend_total,ft.files_len,ft.k1,ft.k2,ft.k1/ft.k2)
-    # print(ft.total_num)
-        # while True:
-        #     flag,isend,state,next_state,last_goal,goal=ft.act()
-        #     flag=0 if flag==False else 1
-        #     ft.trans_file(state,next_state,last_goal,goal,[flag])
-        #     if isend:
-        #         break
-        #     if ft.total_num>=10:
-        #         breakpoint()
-    # print(ft.max_interval,ft.min_interval,ft.total_interval/ft.interval_nums)
-    # print(ft.max_x,ft.max_y,ft.a_max_y,ft.a_max_x)
 
 def trans_file(trans_path,num,*points_list):
     if not os.path.exists(trans_path):
@@ -1017,23 +870,22 @@ def get_all_info(root_path):
 
 if __name__ == '__main__':
     
-    f2x=FileToTxt()
-    x,y=f2x.get_random_points([0,0],[0,0])
-    for i,j in zip(x,y):
-        
+    # for i,j in zip(x,y):
+    #     t+=1
+    #     if t>m:
+    #         k+=1
+    #         m+=section[k]*section[k]
+    #     print(f'x:{i} y:{j} begin_r:{radium[k]} {radium[k+1]} r{np.sqrt(i**2+j**2)}')
 
     # pretrain_save_file('3_critic',wtuc.CRITIC,3)
     # pretrain_save_file('5_critic',wtuc.CRITIC,5)
-    # pretrain_save_file('3_policy_interval',wtuc.POLICY_INTERVAL,3)
-    # pretrain_save_file('5_policy_interval',wtuc.POLICY_INTERVAL,5)
+
     # pretrain_save_file('5_policy_1last_move_not_origin',wtuc.POLICY,5)
     # pretrain_save_file('5_critic_1last_move_not_origin',wtuc.CRITIC,5)
  
     # pretrain_save_file('5_policy_1last_move',wtuc.POLICY,5)
     # pretrain_save_file('5_critic_1last_move',wtuc.CRITIC,5)
-    # pretrain_save_file('5_policy_1last_move_',wtuc.POLICY_,5)
+    pretrain_save_file('5_policy_1last_move_',wtuc.POLICY_,5)
     # pretrain_save_file('5_critic_1last_move_',wtuc.CRITIC_,5)
  
     # pretrain_save_file('3_policy',wtuc.POLICY,3)
-    # pretrain_save_file('policy_interval_d',5,7)
-    # pretrain_save_file('policy_interval_d',3,7)

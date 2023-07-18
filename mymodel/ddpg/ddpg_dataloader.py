@@ -122,21 +122,11 @@ class dataset_loader_policy(Dataset):
         #states,near_state,last_goal,last_action,self.goal,[isend]
         #last_goal,state_n,n_state_n,mouse_n,goal,[is_end]
         state =data.get('0')
-        # next_eye_list=nums[1]
         near_state=data.get('1')
         last_goal=data.get('2')
         last_action=data.get('3')
         goal=data.get('4')
         is_end=data.get('5')
-        # if len(last_goal)!=2:
-        #     print(eye_list)
-        #     print(last_goal)
-        #     print(nums[2])
-        #     print(txt_path)
-        #     breakpoint()
-        # goal[0],goal[1]=(goal[0]-last_action[0])/len(),(goal[1]-last_action[1])/len()
-        # s_=nums[2]
-        # print(state)
         return torch.tensor(last_goal,dtype=torch.float32).reshape(1,-1),\
         torch.tensor(state,dtype=torch.float32).reshape(1,-1),\
             torch.tensor(near_state,dtype=torch.float32).reshape(1,-1),\
@@ -147,6 +137,8 @@ class dataset_loader_policy(Dataset):
 
     def __len__(self):
         return len(self.data.keys())
+
+
 
 if __name__=='__main__':
     od3 = dataset_loader_policy('/home/wu_tian_ci/eyedata/mixed/5_policy_1last_move5/s1/train1.json')
