@@ -152,9 +152,10 @@ class PolicyBaseNet2(nn.Module):
         encoder_nums=int(num_layer/2+0.5)
         decoder_nums=num_layer-encoder_nums
 
-        self.encoder=PolicyModule2((action_n+state_n+mouse_n+n_state_n),(action_n+state_n+mouse_n+n_state_n),encoder_nums)
-        out_c=(encoder_nums+1)*((action_n+state_n+mouse_n+n_state_n))
+        self.encoder=PolicyModule2((action_n+state_n+n_state_n),(action_n+state_n+n_state_n),encoder_nums)
+        out_c=(encoder_nums+1)*((action_n+state_n+n_state_n))
         self.decoder=PolicyModule2(out_c,mouse_n,decoder_nums)
+        self.out=PolicyResBlock2(out_c,output_n)
         out_c=out_c+decoder_nums*mouse_n
         self.s2=PolicyResBlock2(out_c,output_n)
         self.a_meta=PolicyResBlock2(action_n,output_n)
@@ -166,11 +167,11 @@ class PolicyBaseNet2(nn.Module):
 
     def forward(self,a,b,c,d):
         # s1=self.s1(torch.concat([a,b,c,d],dim=-1))
-        s1=torch.concat([a,b,c,d],dim=-1)
+        s1=torch.concat([a,b,c],dim=-1)
         n=self.encoder(s1,s1)
         n=self.decoder(n,d)
         # print(n.shape)
-        return torch.tanh(self.s2(n)+self.m_meta(d))
+        return self.s2(n)+self.m_meta(d),self.out(n)
 
 
 

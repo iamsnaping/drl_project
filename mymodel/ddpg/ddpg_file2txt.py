@@ -267,7 +267,7 @@ class FileToTxt:
                 if np.linalg.norm(goal_)<50:
                     goal_[0],goal_[1]=0,0
                 goal_[0],goal_[1]=goal_[0]+d[0],goal_[1]+d[1]
-                self.trans_file(a,b,c,d,goal_,f)
+                self.trans_file(a,b,c,d,goal_,f,e)
                 self.total_num+=1
 
 
@@ -406,8 +406,8 @@ class FileToTxt:
                     goal_=[e[0]-d[0],e[1]-d[1]]
                     if np.linalg.norm(goal_)>dis_max:
                         goal_=(np.array(goal_)/np.linalg.norm(goal_)*dis_max).tolist()
-                        goal_[0]/=200
-                        goal_[1]/=200
+                        goal_[0]/=300
+                        goal_[1]/=300
                     self.trans_file(aa,bb,cc,dd,goal_,f)
                     self.total_num+=1
 

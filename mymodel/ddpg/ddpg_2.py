@@ -158,17 +158,23 @@ def get_scores(goal_n,last_action,action,is_end,epochs):
     # print(action,goal_n)
     l2=np.linalg.norm(action-goal_n)
     ll=l1-l2
-    flag=False
-    if l2<75:
-        l=10
-        flag=True
-    elif l1 <75 and l2>=75:
+    if l2<100:
+        l=20
+    elif l1 <100 and l2>=100:
         l=-20
     else:
-        l=np.tanh(ll*0.015)*0.1
+        l=np.tanh(ll*0.015)
+        if l>0 and ll>200:
+            l=l/(1+(ll-200)*0.01)
         if l<0:
             l*=1.5
-    return l,flag
+    if is_end:
+        if l2<100:
+            l=40
+        else:
+            l=-40
+    return l
+
 
 '''
 undo

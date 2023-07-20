@@ -175,7 +175,7 @@ class ActorNet2(PolicyBaseNet2):
         return self.s2(n)+self.m_meta(d)
 
     def act(self, last_goal,state,near_state,last_action,epochs):
-        action = self(last_goal,state,near_state,last_action)*200
+        action,goal = self(last_goal,state,near_state,last_action)*200
         noise = torch.tensor(np.random.normal(loc=0, scale=(5/(epochs+1))**2),
                              dtype=torch.float32)
         if self.is_noise:
@@ -228,7 +228,7 @@ class Actor_Net:
 class Agent:
     def __init__(self,buffer_maxlen=50000, lr=0.03, GAMMA=0.9,tao=0.9,mode=1):
         if mode==1:
-            self.memo = ReplayBuffer(buffer_maxlen)
+            self.memo = ReplayBuffer2(buffer_maxlen)
         else:
             self.memo=ReplayBuffer2(buffer_maxlen)
         self.actor_net = Actor_Net(lr,tao,GAMMA,mode)

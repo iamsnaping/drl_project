@@ -101,6 +101,8 @@ def test_acc(net, test_iter,device):
 
 
 def train_epoch(train_iter, test_iter, net, lr, epochs, device,load_path=None,store_path=None):
+    train_prefetcher=data_prefetcher(train_iter)
+    test_prefetcher=data_prefetcher(test_iter)
     net.to(device)
     trainer = torch.optim.Adam(lr=lr, params=net.parameters())
     schedule = torch.optim.lr_scheduler.CosineAnnealingLR(trainer, T_max=epochs)
@@ -119,32 +121,23 @@ def train_epoch(train_iter, test_iter, net, lr, epochs, device,load_path=None,st
     if load_path is not None:
         m_load_path=os.path.join(load_path,'PolicyNet.pt')
         net.load_state_dict(torch.load(m_load_path))
-    p_lr=0.
-    learning_rate=[]
     for i in tqdm(range(epochs)):
         net.train()
         max_loss = 0.
         min_loss = np.inf
         ll, t = 0, 0
         loss_flag=1
-        for last_goal,state,near_state,last_action,goal in train_iter:
+        for last_goal,state,near_state,last_action,goal,goal_ in train_iter:
             state=state.to(device)
             last_goal=last_goal.to(device)
             last_action=last_action.to(device)
             goal=goal.to(device)
             near_state=near_state.to(device)
             trainer.zero_grad()
-            # print(x.shape,y.shape,z.shape)
-            # print(state.shape,last_goal.shape,last_mouse.shape)\
-            # print(net(last_goal,state,near_state,last_action))
-            # print(goal)
-            ans=net(last_goal,state,near_state,last_action)
-            # ans=torch.clamp(ans,max=100,min=-100)
-            # print(loss(ans, goal))
-            # print(last_goal,state,near_state,last_action,ans)
-            # print(ans)
-            l = loss(ans, goal)
-            # l2= torch.sum(loss2(ans,goal).squeeze(),dim=-1)
+            ans,_=net(last_goal,state,near_state,last_action)
+            l1 = loss(ans, goal)
+            l2=loss(_,goal_)
+            l=l1+l2
             if ((loss_flag&1)==1) and l < best_loss :
                 best_loss = l
                 torch.save(net.state_dict(), m_store_path)
@@ -158,8 +151,6 @@ def train_epoch(train_iter, test_iter, net, lr, epochs, device,load_path=None,st
         p_lr=trainer.param_groups[0]['lr']
         schedule.step()
         t_max, t_min, t_ave = test_acc(net, test_iter,device)
-        # train_list.append([max_loss,min_loss,(ll/t).cpu().detach().numpy(),trainer.param_groups[0]['lr']])
-        # test_list.append([t_max,t_min,t_ave.cpu().detach().numpy(),trainer.param_groups[0]['lr']])
         with open(train_path,'a') as f:
             f.write('epochs :'+str(i)+' ')
             f.write(str(max_loss)+' '+str(min_loss)+' '+str(((ll/t).cpu().detach().numpy()))+' '+str(trainer.param_groups[0]['lr'])+'\n')
@@ -169,28 +160,6 @@ def train_epoch(train_iter, test_iter, net, lr, epochs, device,load_path=None,st
             f.write(str(t_max)+' '+str(t_min)+' '+str(t_ave.cpu().detach().numpy())+' '+str(trainer.param_groups[0]['lr'])+' '+'\n')
             f.close()
     net.load_state_dict(torch.load(m_store_path))
-    # print('test acc ')
-    # print(test_acc(net, test_iter,device),end=' ')
-    # t=1
-    # with open(test_path,'w') as f:
-    #     for data in test_list:
-    #         write_str='eposides: '+str(t)
-    #         t+=1
-    #         for i in data:
-    #             write_str+=' '+str(i)
-    #         write_str+='\n'
-    #         f.write(write_str)
-    #     f.close()
-    # t=1
-    # with open(train_path,'w') as f:
-    #     for data in train_list:
-    #         write_str='eposides: '+str(t)
-    #         t+=1
-    #         for i in data:
-    #             write_str+=' '+str(i)
-    #         write_str+='\n'
-    #         f.write(write_str)
-    #     f.close()
     t_max, t_min, t_ave =test_acc(net, test_iter,device)
     with open(test_path,'a') as f:
         f.write('last test acc: ')
@@ -204,8 +173,8 @@ def train_epoch(train_iter, test_iter, net, lr, epochs, device,load_path=None,st
 
 if __name__ == "__main__":
     parser=argparse.ArgumentParser(description='ddpg_pretrain_policy parser')
-    parser.add_argument('-epochs_1',type=int,default=700)
-    parser.add_argument('-epochs_2',type=int,default=500)
+    parser.add_argument('-epochs_1',type=int,default=300)
+    parser.add_argument('-epochs_2',type=int,default=200)
     parser.add_argument('-lr_1',type=float,default=0.07)
     parser.add_argument('-lr_2',type=float,default=0.03)
     parser.add_argument('-load_path',type=str,default=None)
@@ -237,8 +206,8 @@ if __name__ == "__main__":
         net=PolicyBaseNet(6,20,10,2,7,2)
     train_dataset=dataset_loader_policy(train_path)
     test_dataset=dataset_loader_policy(test_path)
-    train_iter=torch.utils.data.DataLoader(dataset=train_dataset,shuffle=True,batch_size=10240,num_workers=12)
-    test_iter=torch.utils.data.DataLoader(dataset=test_dataset,shuffle=True,batch_size= 5120,num_workers=6)
+    train_iter=torch.utils.data.DataLoader(dataset=train_dataset,shuffle=True,batch_size=10240,num_workers=12,pin_memory=True)
+    test_iter=torch.utils.data.DataLoader(dataset=test_dataset,shuffle=True,batch_size= 5120,num_workers=12,pin_memory=True)
     train_epoch(train_iter, test_iter, net, args.lr_1, args.epochs_1, device,load_path=None,store_path=store_path1)
     # print(store_path1)
     train_epoch(train_iter, test_iter, net, args.lr_2, args.epochs_2, device,load_path=store_path1,store_path=store_path2)

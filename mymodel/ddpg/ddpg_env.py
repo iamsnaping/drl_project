@@ -251,9 +251,6 @@ class DDPGEnv:
                 break
         if self.end_idx>=self.cfile_len:
             self.file_finish=True
-        self.action_list.append([-1,-1])
-        self.state_list.append([-1 for i in range(len(self.state_list[-1]))])
-        self.near_states_list.append([-1 for i in range(len(self.near_states_list[-1]))])
         self.states_idx=0
 
 
@@ -275,10 +272,6 @@ class DDPGEnv:
         states_idx=self.states_idx
         self.states_idx+=1
         # state near_state last_goal_list,last_goal,goal,isend
-        # print(self.states_idx,self.states_len-1,int(self.states_idx>=(self.states_len-1)))
-        if self.states_idx>=(self.states_len):
-            return self.state_list[states_idx],self.near_states_list[states_idx],[-1 for i in range(6)],\
-                [-1,-1],[-1,-1],int(self.states_idx>=(self.states_len))
         return self.state_list[states_idx],self.near_states_list[states_idx],self.last_goal_list[-6:],self.last_goal_list[-2:],self.goal,int(self.states_idx>=(self.states_len))
         
 

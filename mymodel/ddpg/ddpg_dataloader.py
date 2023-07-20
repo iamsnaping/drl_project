@@ -118,7 +118,7 @@ class dataset_loader_policy(Dataset):
 
     def __getitem__(self, item):
         data = self.data.get(str(item))
-        nums = []
+
         #states,near_state,last_goal,last_action,self.goal,[isend]
         #last_goal,state_n,n_state_n,mouse_n,goal,[is_end]
         state =data.get('0')
@@ -127,11 +127,13 @@ class dataset_loader_policy(Dataset):
         last_action=data.get('3')
         goal=data.get('4')
         is_end=data.get('5')
+        goal_=data.get('6')
         return torch.tensor(last_goal,dtype=torch.float32).reshape(1,-1),\
         torch.tensor(state,dtype=torch.float32).reshape(1,-1),\
             torch.tensor(near_state,dtype=torch.float32).reshape(1,-1),\
                torch.tensor(last_action,dtype=torch.float32).reshape(1,-1),\
-                torch.tensor(goal,dtype=torch.float32).reshape(1,-1)
+                torch.tensor(goal,dtype=torch.float32).reshape(1,-1),\
+                    torch.tensor(goal_,dtype=torch.float32).reshape(1,-1)
 
 
 
@@ -140,14 +142,42 @@ class dataset_loader_policy(Dataset):
 
 
 
+class data_prefetcher():
+    def __init__(self,loader):
+        self.loader=loader
+        self.stream=torch.cuda.Stream()
+        self.preload()
+    
+    def preload(self):
+        try:
+            self.next_data = next(self.loader)
+        except StopIteration:
+            self.next_input = None
+            return
+        # with torch.cuda.stream(self.stream):
+        #     self.next_data = self.next_data.cuda(non_blocking=True)
+            
+    def next(self):
+        # torch.cuda.current_stream().wait_stream(self.stream)
+        data = self.next_data
+        self.preload()
+        return data
+
+
+
 if __name__=='__main__':
     od3 = dataset_loader_policy('/home/wu_tian_ci/eyedata/mixed/5_policy_1last_move5/s1/train1.json')
-    dl3=torch.utils.data.DataLoader(dataset=od3,shuffle=False,batch_size=5120,num_workers=18)
+    dl3=torch.utils.data.DataLoader(dataset=od3,shuffle=False,batch_size=10240,num_workers=12,pin_memory=True)
     # for a,b,c,d,e,f,g,h,i,j,k in dl3:
     #     # print(a,b,c,d,e,f,g,h,i,j,k)
     #     pass
-    for a,b,c,d,e in dl3:
-        print(a,b,c,d,e)
+    begin_=time.process_time()
+    print(begin_)
+    for i in range(5):
+        for a,b,c,d,e in dl3:
+            ...
+    print(time.process_time()-begin_)
+
     # k=0
     # a=torch.ones(1,1,6)
     # b=torch.ones(1,1,9)
