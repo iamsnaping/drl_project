@@ -79,33 +79,45 @@ def test_acc(net, test_iter,device):
     net.eval()
     max_loss = 0.
     min_loss = np.inf
+
+    max_loss2 = 0.
+    min_loss2 = np.inf
     loss = nn.MSELoss(reduction='mean')
     t = 0
     ll = 0.
+    ll2=0
+
     # net.eval()
     with torch.no_grad():
-       for last_goal,state,near_state,last_action,goal in train_iter:
+       for last_goal,state,near_state,last_action,goal,goal_ in train_iter:
             state=state.to(device)
             last_goal=last_goal.to(device)
             last_action=last_action.to(device)
             goal=goal.to(device)
             near_state=near_state.to(device)
+            goal_=goal_.to(device)
             # print(x.shape,y.shape,z.shape)
             # print(state.shape,last_goal.shape,last_mouse.shape)
-            l = loss(net(last_goal,state,near_state,last_action), goal)
-            max_loss = max(max_loss, l.cpu().detach().numpy())
-            min_loss = min(min_loss, l.cpu().detach().numpy())
-            ll += l
+            ans,_=net(last_goal,state,near_state,last_action)
+            l1 = loss(ans, goal)
+            l2=loss(goal_,_)
+            l=l1+l2
+            max_loss = max(max_loss, l1.cpu().detach().numpy())
+            min_loss = min(min_loss, l1.cpu().detach().numpy())
+            max_loss2 = max(max_loss2, l2.cpu().detach().numpy())
+            min_loss2 = min(min_loss2, l2.cpu().detach().numpy())
+            ll += l1
+            ll2+=l2
             t += 1
-    return max_loss, min_loss, ll / t
+    return max_loss, min_loss,max_loss2,min_loss2, ll / t,ll2/t
 
 
-def train_epoch(train_iter, test_iter, net, lr, epochs, device,load_path=None,store_path=None):
-    train_prefetcher=data_prefetcher(train_iter)
-    test_prefetcher=data_prefetcher(test_iter)
+def train_epoch(batchsize, net, lr, epochs, device,load_path=None,store_path=None):
+    # train_prefetcher=data_prefetcher(train_iter)
+    # test_prefetcher=data_prefetcher(test_iter)
     net.to(device)
     trainer = torch.optim.Adam(lr=lr, params=net.parameters())
-    schedule = torch.optim.lr_scheduler.CosineAnnealingLR(trainer, T_max=epochs)
+    schedule = torch.optim.lr_scheduler.CosineAnnealingLR(trainer, T_max=epochs+10)
     loss = nn.MSELoss()
     # loss2=nn.CosineSimilarity(dim=-1)
     best_loss = np.inf
@@ -123,9 +135,16 @@ def train_epoch(train_iter, test_iter, net, lr, epochs, device,load_path=None,st
         net.load_state_dict(torch.load(m_load_path))
     for i in tqdm(range(epochs)):
         net.train()
+        dbatch_size=int((1+(1+i)/epochs)*batchsize)
+        train_iter=torch.utils.data.DataLoader(dataset=train_dataset,shuffle=True,batch_size=dbatch_size,num_workers=16,pin_memory=True)
+        test_iter=torch.utils.data.DataLoader(dataset=test_dataset,shuffle=True,batch_size= dbatch_size,num_workers=16,pin_memory=True)
         max_loss = 0.
         min_loss = np.inf
-        ll, t = 0, 0
+
+        max_loss2 = 0.
+        min_loss2 = np.inf
+
+        ll, t ,ll2=0, 0, 0
         loss_flag=1
         for last_goal,state,near_state,last_action,goal,goal_ in train_iter:
             state=state.to(device)
@@ -135,46 +154,56 @@ def train_epoch(train_iter, test_iter, net, lr, epochs, device,load_path=None,st
             near_state=near_state.to(device)
             trainer.zero_grad()
             ans,_=net(last_goal,state,near_state,last_action)
+            goal_=goal_.to(device)
             l1 = loss(ans, goal)
             l2=loss(_,goal_)
-            l=l1+l2
+            l=l1+l2*0.1
             if ((loss_flag&1)==1) and l < best_loss :
                 best_loss = l
                 torch.save(net.state_dict(), m_store_path)
             loss_flag+=1
-            max_loss = max(max_loss, l.cpu().detach().numpy())
-            min_loss = min(min_loss, l.cpu().detach().numpy())
-            ll += l
+            max_loss = max(max_loss, l1.cpu().detach().numpy())
+            min_loss = min(min_loss, l1.cpu().detach().numpy())
+            max_loss2 = max(max_loss2, l2.cpu().detach().numpy())
+            min_loss2 = min(min_loss2, l2.cpu().detach().numpy())
+            ll += l1
+            ll2+=l2
             t += 1
             l.backward()
             trainer.step()
         p_lr=trainer.param_groups[0]['lr']
         schedule.step()
-        t_max, t_min, t_ave = test_acc(net, test_iter,device)
+        t_max, t_min,tmax_2,tmin_2,t_ave,tave_2 =test_acc(net, test_iter,device)
         with open(train_path,'a') as f:
             f.write('epochs :'+str(i)+' ')
-            f.write(str(max_loss)+' '+str(min_loss)+' '+str(((ll/t).cpu().detach().numpy()))+' '+str(trainer.param_groups[0]['lr'])+'\n')
+            f.write(str(max_loss)+' '+str(min_loss)+' '+str(((ll/t).cpu().detach().numpy()))+' '\
+                +str(max_loss2)+' '+str(min_loss2)+' '+str(((ll2/t).cpu().detach().numpy()))+' '\
+                +str(trainer.param_groups[0]['lr'])+'\n')
             f.close()
         with open(test_path,'a') as f:
             f.write('epochs :'+str(i)+' ')
-            f.write(str(t_max)+' '+str(t_min)+' '+str(t_ave.cpu().detach().numpy())+' '+str(trainer.param_groups[0]['lr'])+' '+'\n')
+            f.write(str(t_max)+' '+str(t_min)+' '+str(t_ave.cpu().detach().numpy())+' '+str(tmax_2)+' '+str(tmin_2)+' '+\
+            str(tave_2.cpu().detach().numpy())+' '+str(trainer.param_groups[0]['lr'])+' '+'\n')
             f.close()
     net.load_state_dict(torch.load(m_store_path))
-    t_max, t_min, t_ave =test_acc(net, test_iter,device)
+    #max_loss, min_loss,max_loss2,min_loss2, ll / t,ll2/t
+    t_max, t_min,tmax_2,tmin_2,t_ave,tave_2 =test_acc(net, test_iter,device)
     with open(test_path,'a') as f:
         f.write('last test acc: ')
-        f.write(str(t_max)+' '+str(t_min)+' '+str(t_ave.cpu().detach().numpy()))
+        f.write(str(t_max)+' '+str(t_min)+' '+str(t_ave.cpu().detach().numpy())+' '+str(tmax_2)+' '+str(tmin_2)+\
+            ' '+str(tave_2.cpu().detach().numpy()))
         f.close()
     with open(train_path,'a') as f:
         f.write('last test acc: ')
-        f.write(str(t_max)+' '+str(t_min)+' '+str(t_ave.cpu().detach().numpy()))
+        f.write(str(t_max)+' '+str(t_min)+' '+str(t_ave.cpu().detach().numpy())+' '+str(tmax_2)+' '+str(tmin_2)+\
+        ' '+str(tave_2.cpu().detach().numpy()))
         f.close()
 
 
 if __name__ == "__main__":
     parser=argparse.ArgumentParser(description='ddpg_pretrain_policy parser')
-    parser.add_argument('-epochs_1',type=int,default=300)
-    parser.add_argument('-epochs_2',type=int,default=200)
+    parser.add_argument('-epochs_1',type=int,default=700)
+    parser.add_argument('-epochs_2',type=int,default=500)
     parser.add_argument('-lr_1',type=float,default=0.07)
     parser.add_argument('-lr_2',type=float,default=0.03)
     parser.add_argument('-load_path',type=str,default=None)
@@ -206,11 +235,13 @@ if __name__ == "__main__":
         net=PolicyBaseNet(6,20,10,2,7,2)
     train_dataset=dataset_loader_policy(train_path)
     test_dataset=dataset_loader_policy(test_path)
-    train_iter=torch.utils.data.DataLoader(dataset=train_dataset,shuffle=True,batch_size=10240,num_workers=12,pin_memory=True)
-    test_iter=torch.utils.data.DataLoader(dataset=test_dataset,shuffle=True,batch_size= 5120,num_workers=12,pin_memory=True)
-    train_epoch(train_iter, test_iter, net, args.lr_1, args.epochs_1, device,load_path=None,store_path=store_path1)
+    train_iter=torch.utils.data.DataLoader(dataset=train_dataset,shuffle=True,batch_size=8192,num_workers=16,pin_memory=True)
+    test_iter=torch.utils.data.DataLoader(dataset=test_dataset,shuffle=True,batch_size= 16384,num_workers=16,pin_memory=True)
+    train_epoch(8192, net, args.lr_1, args.epochs_1, device,load_path=None,store_path=store_path1)
     # print(store_path1)
-    train_epoch(train_iter, test_iter, net, args.lr_2, args.epochs_2, device,load_path=store_path1,store_path=store_path2)
+    # train_iter=torch.utils.data.DataLoader(dataset=train_dataset,shuffle=True,batch_size=16384,num_workers=16,pin_memory=True)
+    # test_iter=torch.utils.data.DataLoader(dataset=test_dataset,shuffle=True,batch_size= 16384,num_workers=16,pin_memory=True)
+    # train_epoch(train_iter, test_iter, net, args.lr_2, args.epochs_2, device,load_path=store_path1,store_path=store_path2)
 
 # /home/wu_tian_ci/anaconda3/envs/drl_env/bin/python /home/wu_tian_ci/drl_project/mymodel/ddpg/ddpg_pretrain_policy.py -train_file_path 5_policy_1last_move_not_origin5
 # /home/wu_tian_ci/anaconda3/envs/drl_env/bin/python /home/wu_tian_ci/drl_project/mymodel/ddpg/ddpg_pretrain_critic.py -train_file_path 5_critic_1last_move_not_origin5 -load 5_policy_1last_move_not_origin5

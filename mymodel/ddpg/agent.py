@@ -36,7 +36,7 @@ def weight_init(m):
         nn.init.constant_(m.bias, 0.0)
 
 
-class ReplayBuffer():
+class ReplayBuffer2():
     def __init__(self, buffer_maxlen):
         self.buffer = []
         self.buffer_nums=0
@@ -52,54 +52,45 @@ class ReplayBuffer():
             self.buffer_nums=(self.buffer_nums+1)%self.max_len
 
     def sample(self, batch_size):
-        # state,state_,near_state,near_state_,last_goal_list_,last_action,action,isend_,reward
+        # state,,near_state,,last_goal_list_,last_action,action,isend,reward
         state_list=[]
-        next_state_list=[]
         near_state_list=[]
-        next_near_state_list=[]
         last_state_list=[]
         last_action_list=[]
         action_list=[]
         isend_list=[]
         reward_list=[]
         ep_list=[]
-        ep1_list=[]
+        goal_list=[]
         batch = random.sample(self.buffer, batch_size)
         for experience in batch:
-            state,state_,near_state,near_state_,last_goal_list_,last_action,action,isend_,reward,goal,ep,ep1= experience
+            state,near_state,last_goal_list_,last_action,action,isend_,reward,goal,ep,goal_= experience
             # state, action, reward, next_state, done
             state_list.append([state])
-            next_state_list.append([state_])
             near_state_list.append([near_state])
-            next_near_state_list.append([near_state_])
             last_state_list.append([last_goal_list_])
             last_action_list.append([last_action])
             action_list.append([action])
             isend_list.append([isend_])
             reward_list.append([reward])
             ep_list.append([ep])
-            ep1_list.append([ep1])
+            goal_list.append[goal_]
             # print(last_state_list)
         return torch.as_tensor(state_list,dtype=torch.float32), \
-               torch.as_tensor(next_state_list,dtype=torch.float32), \
                torch.as_tensor(near_state_list,dtype=torch.float32),\
-               torch.as_tensor(next_near_state_list,dtype=torch.float32), \
                torch.as_tensor(last_state_list,dtype=torch.float32),\
                torch.as_tensor(np.array(last_action_list),dtype=torch.float32), \
                torch.as_tensor(np.array(action_list),dtype=torch.float32),\
                torch.as_tensor(isend_list,dtype=torch.float32).unsqueeze(-1),\
                torch.as_tensor(reward_list,dtype=torch.float32).unsqueeze(-1),\
                torch.as_tensor(ep_list,dtype=torch.float32).unsqueeze(-1),\
-               torch.as_tensor(ep1_list,dtype=torch.float32).unsqueeze(-1)
+               torch.as_tensor(goal_list,dtype=torch.float32).unsqueeze(-1)
     def __len__(self):
         return len(self.buffer)
 
-    def buffer_len(self):
-        return len(self.buffer)
 
 
-
-class ReplayBuffer2():
+class ReplayBuffer():
     def __init__(self, buffer_maxlen):
         self.buffer = []
         self.buffer_nums=0
@@ -168,19 +159,17 @@ class ActorNet2(PolicyBaseNet2):
     def __init__(self,action_n,state_n,n_state_n,mouse_n ,num_layer,output_n):
         super(ActorNet2, self).__init__(action_n,state_n,n_state_n,mouse_n ,num_layer,output_n)
 
-    def forward(self,a,b,c,d):
-        s1=torch.concat([a,b,c,d],dim=-1)
-        n=self.encoder(s1,s1)
-        n=self.decoder(n,d)
-        return self.s2(n)+self.m_meta(d)
-
     def act(self, last_goal,state,near_state,last_action,epochs):
-        action,goal = self(last_goal,state,near_state,last_action)*200
+        action,goal = self(last_goal,state,near_state,last_action)
+        action=torch.clamp(action,max=1,min=-1)
         noise = torch.tensor(np.random.normal(loc=0, scale=(5/(epochs+1))**2),
                              dtype=torch.float32)
         if self.is_noise:
             action = last_action+action + noise
-        return action.squeeze().cpu().detach().numpy()
+        goal=goal.squeeze().cpu().detach().numpy()
+        # goal[0]=goal[0]*1920+1920
+        # goal[1]=goal[1]*540+540
+        return action.squeeze().cpu().detach().numpy()+last_action,goal
 
 
 class CriticNet(BaseNet):
@@ -190,11 +179,15 @@ class CriticNet(BaseNet):
 
 
 class Critic_Net:
-    def __init__(self,lr, tao):
+    def __init__(self,lr, tao,mode):
         # self.target = CriticNet(40,1,10,2)
         # self.online = CriticNet(40,1,10,2)
-        self.target=ActorNet(2,30,6,3,5,1)
-        self.online=ActorNet(2,30,6,3,5,1)
+        if mode==1:
+            self.target=ActorNet(2,30,6,3,5,1)
+            self.online=ActorNet(2,30,6,3,5,1)
+        else:
+            self.target=ActorNet(2,30,6,5,5,1)
+            self.online=ActorNet(2,30,6,5,5,1)
         self.trainer = torch.optim.Adam(self.online.parameters(), lr=lr)
         self.tao = tao
 
@@ -228,10 +221,10 @@ class Actor_Net:
 class Agent:
     def __init__(self,buffer_maxlen=50000, lr=0.03, GAMMA=0.9,tao=0.9,mode=1):
         if mode==1:
-            self.memo = ReplayBuffer2(buffer_maxlen)
+            self.memo = ReplayBuffer(buffer_maxlen)
         else:
             self.memo=ReplayBuffer2(buffer_maxlen)
         self.actor_net = Actor_Net(lr,tao,GAMMA,mode)
-        self.critic_net = Critic_Net(lr,tao)
+        self.critic_net = Critic_Net(lr,tao,mode)
         self.critic_net.online.apply(weight_init)
         self.critic_net.target.apply(weight_init)

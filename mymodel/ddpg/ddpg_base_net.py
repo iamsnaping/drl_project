@@ -149,7 +149,7 @@ class PolicyBaseNet2(nn.Module):
     # 6 20 10 2 10 3
     def __init__(self,action_n,state_n,n_state_n,mouse_n ,num_layer,output_n):
         super(PolicyBaseNet2, self).__init__()
-        encoder_nums=int(num_layer/2+0.5)
+        encoder_nums=int((num_layer+1)/2)
         decoder_nums=num_layer-encoder_nums
 
         self.encoder=PolicyModule2((action_n+state_n+n_state_n),(action_n+state_n+n_state_n),encoder_nums)
@@ -169,9 +169,10 @@ class PolicyBaseNet2(nn.Module):
         # s1=self.s1(torch.concat([a,b,c,d],dim=-1))
         s1=torch.concat([a,b,c],dim=-1)
         n=self.encoder(s1,s1)
+        out=self.out(n)
         n=self.decoder(n,d)
         # print(n.shape)
-        return self.s2(n)+self.m_meta(d),self.out(n)
+        return self.s2(n)+self.m_meta(d),out
 
 
 

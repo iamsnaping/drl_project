@@ -167,14 +167,14 @@ class data_prefetcher():
 
 if __name__=='__main__':
     od3 = dataset_loader_policy('/home/wu_tian_ci/eyedata/mixed/5_policy_1last_move5/s1/train1.json')
-    dl3=torch.utils.data.DataLoader(dataset=od3,shuffle=False,batch_size=10240,num_workers=12,pin_memory=True)
+    dl3=torch.utils.data.DataLoader(dataset=od3,shuffle=False,batch_size=30720,num_workers=12,pin_memory=True)
     # for a,b,c,d,e,f,g,h,i,j,k in dl3:
     #     # print(a,b,c,d,e,f,g,h,i,j,k)
     #     pass
     begin_=time.process_time()
     print(begin_)
     for i in range(5):
-        for a,b,c,d,e in dl3:
+        for a,b,c,d,e,f in dl3:
             ...
     print(time.process_time()-begin_)
 

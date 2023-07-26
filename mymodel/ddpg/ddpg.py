@@ -47,7 +47,7 @@ class DataRecorder(object):
         # print(hash_list)
         if self.seq_num.get(hash_list) is None:
             self.seq_num[hash_list]=self.max_len
-            self.res_list.append([[last_action,action,reward]])
+            self.res_list.append([[last_action.tolist(),action.tolist(),reward]])
             self.max_len+=1
         else:
             idx=self.seq_num.get(hash_list)
@@ -149,50 +149,34 @@ def get_scores(goal_p,goal_n,s,s_,is_end):
     return (1-is_end)*0.5*(get_tanh(ll))+(1-get_tanh(l3))*is_end
 '''
 
+# ddpg
 # goal_last goal_present last_action action is_end for action
-def get_scores(goal_n,last_action,action,is_end,epochs):
-    l1=np.linalg.norm(last_action-goal_n)
-    # print(action,goal_n)
-    l2=np.linalg.norm(action-goal_n)
-    ll=l1-l2
-    if l2<100:
-        l=20
-    elif l1 <100 and l2>=100:
-        l=-20
-    else:
-        l=np.tanh(ll*0.015)
-        if l>0 and ll>200:
-            l=l/(1+(ll-200)*0.01)
-        if l<0:
-            l*=1.5
-    if is_end:
-        if l2<100:
-            l=40
-        else:
-            l=-40
-    return l
-
-
-# def get_scores_stable(goal_n,last_action,action,sta_sco=None):
+# def get_scores(goal_n,last_action,action,is_end,epochs):
 #     l1=np.linalg.norm(last_action-goal_n)
+#     # print(action,goal_n)
 #     l2=np.linalg.norm(action-goal_n)
 #     ll=l1-l2
-#     if sta_sco is not None:
-#         if l2<75:
-#             pass
+#     if l2<100:
+#         l=20
+#     elif l1 <100 and l2>=100:
+#         # 30
+#         l=-20
 #     else:
-#         if l2<75:
-#             l=5
-#         elif l1 <75 and l2>75:
-#             l=-6
+#         l=np.tanh(ll*0.015)*0.1
+#         if l>0 and ll>200:
+#             l=l/(1+(ll-200)*0.01)
+#         if l<0:
+#             l*=1.5
+#     if is_end:
+#         if l2<100:
+#             # 50
+#             l=40
 #         else:
-#             l=np.tanh(ll*0.02)
-#             if l<0:
-#                 l*=1.1
-#         if l2<75 :
-#             end_reward=2
-#         else:
-#             end_reward=-3.5
+#             # 75
+#             l=-40
+#     return l
+
+
 
 '''
 undo
@@ -217,20 +201,89 @@ undo
 #     return new_tra
 
 
+#ddpg
+# def get_scores_trajectory(trajectory):
+#     new_tra=[]
+#     #new ans-> state,near_state,last_goal_list,last_goal,goal,isend
+#     tra_len=len(trajectory)
+#     rewards=0
+#     scores=0
+#     with torch.no_grad():
+#         for i in range(tra_len-1,-1,-1):
+#             state,near_state,last_goal_list,goal,isend,action,last_action=trajectory[i]
+#             reward=get_scores(goal,last_action,action,isend,tra_len)
+#             rewards=rewards*0.95+reward
+#             scores+=reward
+#             new_tra.append([state,near_state,last_goal_list,last_action,action,isend,rewards,goal,i])
+#     return new_tra,scores
+
+
+
+
+# stable
+def get_scores(goal_n,last_action,action,is_end,epochs):
+    l1=np.linalg.norm(last_action-goal_n)
+    # print(action,goal_n)
+    l2=np.linalg.norm(action-goal_n)
+    ll=l1-l2
+    flag=False
+    if l2<100:
+        l=20
+        flag=True
+    elif l1 <100 and l2>=100:
+        # 20
+        l=-20
+    else:
+        l=np.tanh(ll*0.015)
+        if l>0 and ll>200:
+            l=l/(1+(ll-200)*0.01)
+        if l<0:
+            l*=1.5
+    if is_end:
+        if l2<100:
+            # 40
+            l=40
+            flag=True
+        else:
+            # 40
+            l=-40
+    return l,flag
+
+
+'''
+undo
+
+
+
+# state,near_state,last_goal_list,last_action,action,isend,rewards,goal,i for action
+done
+'''
+
+# stable
 def get_scores_trajectory(trajectory):
     new_tra=[]
     #new ans-> state,near_state,last_goal_list,last_goal,goal,isend
     tra_len=len(trajectory)
+    stable_scores=0
+    stable_flag=False
     rewards=0
     scores=0
     with torch.no_grad():
         for i in range(tra_len-1,-1,-1):
             state,near_state,last_goal_list,goal,isend,action,last_action=trajectory[i]
-            reward=get_scores(goal,last_action,action,isend,tra_len)
+            reward,flag=get_scores(goal,last_action,action,isend,tra_len)
             rewards=rewards*0.95+reward
             scores+=reward
-            # if isend:
-            #     print(rewards,np.linalg.norm(action-goal))
+            if not flag:
+                rewards=rewards*0.5+reward
+            else:
+                if not stable_flag:
+                    stable_flag=True
+                    stable_scores=rewards
+                else:
+                    rewards=stable_scores
+            if np.isnan(rewards):
+                breakpoint()
             # print(len(last_goal_list_),len(last_goal_list),last_goal_list_,last_goal_list)
             new_tra.append([state,near_state,last_goal_list,last_action,action,isend,rewards,goal,i])
     return new_tra,scores
@@ -245,8 +298,8 @@ def train_epoch(agent, lr, epochs, batch_size,device,mode,store_path=None,is_eva
     if is_evaluate==False:
         trainer_1 = torch.optim.Adam(lr=0.0005, params=agent.actor_net.online.parameters())
         trainer_2=torch.optim.Adam(lr=lr,params=agent.critic_net.online.parameters())
-        schedule1 = torch.optim.lr_scheduler.CosineAnnealingLR(trainer_1, T_max=epochs)
-        schedule2=torch.optim.lr_scheduler.CosineAnnealingLR(trainer_2,T_max=epochs)
+        # schedule1 = torch.optim.lr_scheduler.CosineAnnealingLR(trainer_1, T_max=epochs)
+        # schedule2=torch.optim.lr_scheduler.CosineAnnealingLR(trainer_2,T_max=epochs)
         loss=nn.MSELoss()
         if not os.path.exists(store_path):
             os.makedirs(store_path)
@@ -348,7 +401,7 @@ def train_epoch(agent, lr, epochs, batch_size,device,mode,store_path=None,is_eva
                             evalue_scores.append(np.linalg.norm(tra[4]-tra[7])-np.linalg.norm(tra[3]-tra[7]))
                             evalue_reward.append(dp(tra[6]))
                         # print(a,b,c,d)
-                        jdr.add(a,b,c,d,e,K)
+                        jdr.add(a,b,c,d,e,dp(tra[5]))
                         # print(tra)
                         agent.memo.push(tra)
                         # print(scores)
@@ -357,13 +410,16 @@ def train_epoch(agent, lr, epochs, batch_size,device,mode,store_path=None,is_eva
                     rewards.append(scores)
                     scores=0
             if is_evaluate==False:
-                if len(agent.memo)>batch_size and (update_flag%2)==0:
+                if (agent.memo.capacity>batch_size) and (update_flag&1==0):
+                    dbatch_size=int((1+(1-np.cos((agent.memo.capacity/agent.memo.max_len)*np.pi*0.5)))*batch_size)
+                    # dbatch_size=batch_size
                     # t1=time.process_time()
-                    actor_update_flags+=1
+                    # actor_update_flags+=1
+                    # actor_update_flags=actor_update_flags&1
                     if not is_training:
                         with open(reward_path,'a') as f:
                             f.write('begin to train\n')
-                    state,near_state,last_goal_list_,lastaction,action,isend_,reward,ep = agent.memo.sample(batch_size)
+                    state,near_state,last_goal_list_,lastaction,action,isend_,reward,ep = agent.memo.sample(dbatch_size)
                     # t2=time.process_time()
                     state=state.to(device)
                     near_state=near_state.to(device)
@@ -379,7 +435,7 @@ def train_epoch(agent, lr, epochs, batch_size,device,mode,store_path=None,is_eva
                     l1.backward()
                     trainer_2.step()
                     clp.add(l1.cpu().detach().numpy().tolist())
-                    if K>0 and actor_update_flags==2:
+                    if K>0 :
                         actions = agent.actor_net.online(last_goal_list_,state,near_state,lastaction)
                         values = agent.critic_net.online(lastaction,last_goal_list_,torch.concat([state,near_state],dim=-1),torch.cat([actions,ep],dim=-1))
                         vdr.add(torch.mean(values).cpu().detach().numpy().tolist())
@@ -388,7 +444,8 @@ def train_epoch(agent, lr, epochs, batch_size,device,mode,store_path=None,is_eva
                         l2.backward()
                         trainer_1.step()
                     is_training=True
-                    actor_update_flags=actor_update_flags%2
+
+                    # actor_update_flags=actor_update_flags%2
                     # if update_flag%10==0:
                     agent.actor_net.update_params()
                     agent.critic_net.update_params()
@@ -431,10 +488,10 @@ if __name__=='__main__':
     parser.add_argument('-sup',type=str,default='50')
     # net1- >base net
     args=parser.parse_args()
-    agent=Agent(buffer_maxlen=5000,mode=args.net)
+    agent=Agent(buffer_maxlen=524288,mode=args.net)
     if args.eval==False:
         actor_load=os.path.join('/home/wu_tian_ci/drl_project/mymodel/ddpg/pretrain_data/policy/',args.load_policy)
-        actor_load=os.path.join(actor_load,'1/2000_03/PolicyNet.pt')
+        actor_load=os.path.join(actor_load,'1/5000_03/PolicyNet.pt')
         critic_load=os.path.join('/home/wu_tian_ci/drl_project/mymodel/ddpg/pretrain_data/critic/',args.load_critic)
         critic_load=os.path.join(critic_load,'1/4000_03/CriticNet.pt')
         agent.actor_net.online.load_state_dict(torch.load(actor_load))
@@ -462,4 +519,4 @@ if __name__=='__main__':
     if not os.path.exists(critic_loss_path):
         os.makedirs(critic_loss_path)
     print(args.sup)
-    train_epoch(agent, 0.03, 1000, 256,device,args.mode,store_path,is_evaluate=False,json_path=json_path,value_path=value_path,critic_loss_path=critic_loss_path)
+    train_epoch(agent, 0.03, 1000, 128,device,args.mode,store_path,is_evaluate=False,json_path=json_path,value_path=value_path,critic_loss_path=critic_loss_path)

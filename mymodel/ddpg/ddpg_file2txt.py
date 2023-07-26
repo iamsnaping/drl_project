@@ -234,22 +234,58 @@ class FileToTxt:
             p_x,p_y=self.get_gaussian_points(begin_,goal_list[-1],list_len*7)
             # print(len(p_x),list_len)
             points_idx=0
+            upper_=int(list_len*0.2)
+            if upper_<1:
+                upper_=1
             for i in range(list_len):
+                if i>upper_:
+                    max_dis=200
+                else:
+                    max_dis=50
                 a=states_list[i]
                 b=near_state_list[i]
                 c=last_goal_list[i]
                 f=is_end_list[i]
                 e=goal_list[i]
+                aa,bb,cc,ee=[],[],[],[]
+                for j in range(len(a)):
+                    if j&1==0:
+                        aa.append((a[j]-16)/16)
+                    else:
+                        aa.append((a[j]-4.5)/4.5)
+
+                for j in range(len(b)):
+                    if j&1==0:
+                        bb.append((b[j]-16)/16)
+                    else:
+                        bb.append((b[j]-4.5)/4.5)
+
+                for j in range(len(c)):
+                    if j&1==0:
+                        cc.append((c[j]-1920)/1920)
+                    else:
+                        cc.append((c[j]-540)/540)
+                
+                for j in range(len(e)):
+                    if j&1==0:
+                        ee.append((e[j]-1920)/1920)
+                    else:
+                        ee.append((e[j]-540)/540)
+
+
                 for k in range(7):
                     d=[p_x[points_idx],p_y[points_idx]]
                     goal_=[e[0]-d[0],e[1]-d[1]]
-                    if np.linalg.norm(goal_)>100:
-                        goal_=(np.array(goal_)/np.linalg.norm(goal_)*100).tolist()
+                    if np.linalg.norm(goal_)>max_dis:
+                        goal_=(np.array(goal_)/np.linalg.norm(goal_)*max_dis).tolist()
                     if np.linalg.norm(goal_)<50:
                         goal_[0],goal_[1]=0,0
                     points_idx+=1
+                    dd=[(d[0]-1920)/1920,(d[1]-540)/540]
                     goal_[0],goal_[1]=goal_[0]+d[0],goal_[1]+d[1]
-                    self.trans_file(a,b,c,d,goal_,f)
+                    # goal_[0]=(goal_[0]-1920)/1920
+                    # goal_[1]=(goal_[1]-540)/540
+                    self.trans_file(aa,bb,cc,dd,goal_,f,e)
                     self.total_num+=1
 
             radi=np.sqrt((self.goal[0]-self.last_goal_list[-2:][0])**2+(self.goal[1]-self.last_goal_list[-2:][1])**2)/2
@@ -262,15 +298,45 @@ class FileToTxt:
                 e=goal_list[-1]
                 d=[p_x[i],p_y[i]]
                 goal_=[e[0]-d[0],e[1]-d[1]]
-                if np.linalg.norm(goal_)>100:
-                    goal_=(np.array(goal_)/np.linalg.norm(goal_)*100).tolist()
+
+                aa,bb,cc,ee=[],[],[],[]
+                for j in range(len(a)):
+                    if j&1==0:
+                        aa.append((a[j]-16)/16)
+                    else:
+                        aa.append((a[j]-4.5)/4.5)
+
+                for j in range(len(b)):
+                    if j&1==0:
+                        bb.append((b[j]-16)/16)
+                    else:
+                        bb.append((b[j]-4.5)/4.5)
+
+                for j in range(len(c)):
+                    if j&1==0:
+                        cc.append((c[j]-1920)/1920)
+                    else:
+                        cc.append((c[j]-540)/540)
+                
+                for j in range(len(e)):
+                    if j&1==0:
+                        ee.append((e[j]-1920)/1920)
+                    else:
+                        ee.append((e[j]-540)/540)
+
+
+
+
+                if np.linalg.norm(goal_)>200:
+                    goal_=(np.array(goal_)/np.linalg.norm(goal_)*200).tolist()
                 if np.linalg.norm(goal_)<50:
                     goal_[0],goal_[1]=0,0
                 goal_[0],goal_[1]=goal_[0]+d[0],goal_[1]+d[1]
-                self.trans_file(a,b,c,d,goal_,f,e)
+                dd=[(d[0]-1920)/1920,(d[1]-540)/540]
+                # goal_[0]=(goal_[0]-1920)/1920
+                # goal_[1]=(goal_[1]-540)/540
+                self.trans_file(aa,bb,cc,dd,goal_,1,e)
                 self.total_num+=1
-
-
 
             if end_idx>=self.cfile_len:
                 flag=False
@@ -381,15 +447,15 @@ class FileToTxt:
                 aa,bb,cc=[],[],[]
                 for i in range(len(a)):
                     if i&1==0:
-                        aa.append((a[i]-1920)/1920)
+                        aa.append((a[i]-16)/16)
                     else:
-                        aa.append((a[i]-540)/540)
+                        aa.append((a[i]-4.5)/4.5)
 
                 for i in range(len(b)):
                     if i&1==0:
-                        bb.append((b[i]-1920)/1920)
+                        bb.append((b[i]-16)/16)
                     else:
-                        bb.append((b[i]-540)/540)
+                        bb.append((b[i]-4.5)/4.5)
 
                 for i in range(len(c)):
                     if i&1==0:
@@ -742,24 +808,6 @@ class FileToTxt:
         data={}
         data[str(self.trans_nums)]=d
         self.json_data.update(data)
-        # print(self.json_data)
-        # with open(save_path,'w') as f:
-        #     f_1=False
-        #     f_2=False
-        #     for points in points_list:
-        #         if f_1==False:
-        #             f_1=True
-        #         else:
-        #             f.write('\n')
-        #         f_2=False
-        #         # print(points)
-        #         # print(points[0])
-        #         for point in points:
-        #             if f_2==False:
-        #                 f_2=True
-        #             else:
-        #                 f.write(' ')
-        #             f.write(str(int(point)))
         self.trans_nums+=1
 
 
@@ -883,9 +931,9 @@ if __name__ == '__main__':
     # pretrain_save_file('5_policy_1last_move_not_origin',wtuc.POLICY,5)
     # pretrain_save_file('5_critic_1last_move_not_origin',wtuc.CRITIC,5)
  
-    # pretrain_save_file('5_policy_1last_move',wtuc.POLICY,5)
+    pretrain_save_file('5_policy_1last_move',wtuc.POLICY,5)
     # pretrain_save_file('5_critic_1last_move',wtuc.CRITIC,5)
-    pretrain_save_file('5_policy_1last_move_',wtuc.POLICY_,5)
+    # pretrain_save_file('5_policy_1last_move_',wtuc.POLICY_,5)
     # pretrain_save_file('5_critic_1last_move_',wtuc.CRITIC_,5)
  
     # pretrain_save_file('3_policy',wtuc.POLICY,3)

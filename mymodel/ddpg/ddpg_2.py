@@ -196,8 +196,11 @@ def get_scores_trajectory(trajectory):
         for i in range(tra_len-1,-1,-1):
             state,near_state,last_goal_list,goal,isend,action,last_action=trajectory[i]
             reward,flag=get_scores(goal,last_action,action,isend,tra_len)
+
+
+            rewards=rewards*0.95+reward
             if not flag:
-                rewards=rewards*0.9+reward
+                rewards=rewards*0.5+reward
             else:
                 if not stable_flag:
                     stable_flag=True
@@ -272,14 +275,14 @@ def train_epoch(agent, lr, epochs, batch_size,device,mode,store_path=None,is_eva
                 state=torch.tensor([ans[0]],dtype=torch.float32).unsqueeze(0).to(device)
                 near_state=torch.tensor([ans[1]],dtype=torch.float32).unsqueeze(0).to(device)
                 last_goal_list=torch.tensor([ans[2]],dtype=torch.float32).unsqueeze(0).to(device)
-                action=agent.actor_net.online.act(last_goal_list,state,near_state,torch.as_tensor([last_action[0],\
+                action,pgoal=agent.actor_net.online.act(last_goal_list,state,near_state,torch.as_tensor([last_action[0],\
                     last_action[1]],dtype=torch.float32).reshape(1,1,2).to(device),K)
                 # print(ans[4])
                 if ans[5]==1:
                     begin_flag=True
                     # print(action,ans[4],np.linalg.norm(action-np.array(ans[4])),np.mean(evalua_scores_end))
                     # evalua_scores_end.append(np.linalg.norm(action-np.array(ans[4])))
-                new_ans=[dp(ans[0]),dp(ans[1]),dp(ans[2]),dp(ans[4]),dp(ans[5]),dp(action),dp(last_action)]
+                new_ans=[dp(ans[0]),dp(ans[1]),dp(ans[2]),dp(ans[4]),dp(ans[5]),dp(action),dp(last_action),dp(pgoal)]
                 last_action[0],last_action[1]=action[0],action[1]
                 trajectory.append(new_ans)
                 if ans[5]==1:
