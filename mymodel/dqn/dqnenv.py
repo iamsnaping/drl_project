@@ -214,7 +214,6 @@ class DQNEnv:
         self.end_idx=self.goal_nums
         lastEye=-1
         states=[]
-        near_states=[]
         self.move_list=[]
         self.k2+=1
         for i in range(self.begin_idx,self.end_idx):

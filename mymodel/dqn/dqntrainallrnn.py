@@ -212,6 +212,7 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,sto
         endInNoAct=0
         endOutNoAct=0
         # 100
+        processReward=[]
         for steps in range(500):
             eyeList=[]
             clickList=[]
@@ -294,6 +295,7 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,sto
                     endOut+=int(traInfo[6])^1
                     rewards.append(traInfo[7])
                     endAveReward.append(traInfo[8])
+                    processReward.append(traInfo[7]-traInfo[8])
                     inNoAct+=traInfo[9]
                     outNoAct+=traInfo[10]
                     if traInfo[0]>=3:
@@ -332,8 +334,8 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,sto
 
         # eye click goal isEnd
         t_reward_len+=1
-        if t_reward_len>=1000:
-            t_reward_len%=1000
+        if t_reward_len>=20:
+            t_reward_len%=20
             t_reward[t_reward_len]=np.mean(rewards)
             t_end_reward[t_reward_len]=np.mean(endAveReward)
         else:
@@ -359,10 +361,10 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,sto
         endOutNoAct=0
         
         '''
-
-        if len(t_reward)>0 and t_reward[-1]>best_scores and is_training:
+        justiceReward=np.mean(processReward)*5+np.mean(endAveReward)
+        if len(t_reward)>0 and np.mean(t_reward)>best_scores and is_training:
             torch.save(agent.target.state_dict(), m_store_path_a)
-            best_scores=t_reward[-1]
+            best_scores=np.mean(t_reward)
             with open(updataInfo,'a',encoding='UTF-8') as updateInfoFile:
                 updateInfoFile.write('eposides:'+str(K+1)+' ave_eposides_rewards:'+str(round(np.mean(t_reward),2))+\
                 ' ave reward '+str(round(t_reward[-1],2)) +'\n end_reward:' +str(round(np.mean(t_end_reward[-1]),2))+' '+\
@@ -396,11 +398,13 @@ if __name__=='__main__':
     parser.add_argument('-sup',type=str,default='50')
     parser.add_argument('-preload',type=bool,default=False)
     parser.add_argument('-lr',type=float,default=0.05)
+    parser.add_argument('-layers',type=int,default=10)
+    parser.add_argument('-embed',type=int,default=128)
 
     args=parser.parse_args()
     # device=torch.device('cpu')
     device = torch.device(args.cuda if torch.cuda.is_available() else 'cpu')
-    agent=RNNAgent(device=device,rnn_layer=20,embed_n=128)
+    agent=RNNAgent(device=device,rnn_layer=args.layers,embed_n=args.embed)
     store=UTIL.getTimeStamp()
 
     if args.preload:
@@ -440,7 +444,8 @@ if __name__=='__main__':
     if not os.path.exists(store_path):
         os.makedirs(store_path)
     with open(os.path.join(store_path,'envsinfo.txt'),'w') as f:
-        f.write('envs'+str(envs)+'\n trainEnvs:'+str(envs)+'\n'+' lr:'+str(args.lr)+' preload: '+str(args.preload)+' device:'+str(device))
+        f.write('envs'+str(envs)+'\n trainEnvs:'+str(envs)+'\n'+' lr:'+str(args.lr)+' preload: '+str(args.preload)+' device:'+str(device)\
+                +' layers: '+str(args.layers)+" embded: "+str(args.embed))
         if args.sup!='50':
             f.write('\n'+args.sup)
     train_epoch(agent, args.lr, 500, 256,device,args.mode,store_path=store_path,multienvs=envs,\

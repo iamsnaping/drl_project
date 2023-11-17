@@ -89,12 +89,13 @@ class DQNRNNNet(nn.Module):
         self.positionEncoderN=nn.Embedding(3,embed_n)
         self.rnnLayer=rnn_layer
         
+        self.hnMLP=nn.Sequential(nn.Linear(embed_n*2,embed_n),nn.LayerNorm(embed_n),nn.GELU())
         # self.rnn=torch.nn.RNN(embed_n*2,embed_n,rnn_layer,batch_first=True)
         self.rnn=torch.nn.GRU(embed_n*2,embed_n,2,batch_first=True)
 
         self.output=nn.Sequential(nn.LayerNorm(embed_n*2),nn.GELU(),nn.Linear(embed_n*2,13))
-        self.encoder=PolicyModule(embed_n*2,embed_n,embed_n*2,rnn_layer)
-        out_c=(rnn_layer+2)*embed_n
+        self.encoder=PolicyModule(embed_n*4,embed_n,embed_n*4,rnn_layer)
+        out_c=(rnn_layer+4)*embed_n
         self.value_fun=nn.Linear(out_c,1)
         self.adv_fun=nn.Linear(out_c,13)
         self.embedNum=embed_n
@@ -137,9 +138,12 @@ class DQNRNNNet(nn.Module):
         # print(actions1.shape)
         actionPad,_=torch.nn.utils.rnn.pad_packed_sequence(actions,batch_first=True)
         actions1=actionPad[[i for i in range(lengths.shape[0])],lengths-1,:].unsqueeze(1)
-        # hnL=hn[:,-1,:].unsqueeze(1)
-        # hnN=torch.cat([actions1,hnL],dim=-1)
-        actions1=torch.cat([actions1,newClickEncode],dim=-1)
+        # print(hn.shape)
+        # hnM=hn[-1,:,:].unsqueeze(1)
+        hn=torch.permute(hn,(1,0,2))
+        hnM=hn.reshape((lengths.shape[0],1,-1))
+        # hnM=self.hnMLP(hnM)
+        actions1=torch.cat([actions1,newClickEncode,hnM],dim=-1)
         n=self.encoder(actions1,actions1)
         return self.value_fun(n)+self.adv_fun(n)
         
