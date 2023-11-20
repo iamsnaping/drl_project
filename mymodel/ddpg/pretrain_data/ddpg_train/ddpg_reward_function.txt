@@ -1,4 +1,0 @@
-1last_move5 20 -30 40 -75 increasing batch_size
-1last_move5_2 20 -30 40 -75 decreasing learning rate
-1last_move5_3 20 -20 40 -40 stable decreasing learning rate
-1last_move5_4 20 -20 40 -40 decreasing learning rate
