@@ -361,7 +361,6 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,sto
         endOutNoAct=0
         
         '''
-        justiceReward=np.mean(processReward)*5+np.mean(endAveReward)
         if len(t_reward)>0 and np.mean(t_reward)>best_scores and is_training:
             torch.save(agent.target.state_dict(), m_store_path_a)
             best_scores=np.mean(t_reward)
