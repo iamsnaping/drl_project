@@ -49,6 +49,16 @@ REWARDS=20
 
 # create data
 
+''''
+name:
+TODO:
+time:
+params:
+returns:
+'''
+
+
+
 class DataCreater(object):
     def __init__(self) -> None:
         self.eye=[]
