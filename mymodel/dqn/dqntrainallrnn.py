@@ -133,7 +133,7 @@ class PresentsRecorder(object):
         return dp(self.recorder[index])
 
         
-def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,store_path=None,json_path=None,value_path=None,critic_loss_path=None):
+def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,remBlocskNum=5,store_path=None,json_path=None,value_path=None,critic_loss_path=None):
     # random.seed(None)
     # np.random.seed(None)
     agent.online.to(device)
@@ -307,8 +307,6 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,sto
                         endOutNoAct+=int(traInfo[12])^1
                     
                     agentBuffer.push(TDZeroList)
-
-     
                     trajectorys[index].clear()
             dbatch_size=int((1+(agentBuffer.getRatio()))*batch_size)
             if (agentBuffer.holding>=dbatch_size):
@@ -318,13 +316,34 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,sto
                         f.write('begin to train\n')
                     is_training=True
                 clickList,eyeList,lastPList,lengths,actionList,rewardList,maskList,nclickList,neyeList,nlastPList,nlengths= agentBuffer.sample(dbatch_size)
+                deltaP = torch.rand(remBlocskNum).to(device)
+                deltaP =deltaP/ deltaP.sum()
+                # deltaP.requires_grad=True
                 with torch.no_grad():
                     onlineValues=agent.online(clickList,eyeList,lastPList,lengths)
+                    onlineValues=sum(onlineValues)/len(onlineValues)
                     yAction=torch.argmax(onlineValues,dim=-1,keepdim=True)
                     targetValues=agent.target(nclickList,neyeList,nlastPList,nlengths)
+                    # targetValues=targetValues[0]*deltaP[0]+targetValues[1]*deltaP[1]+targetValues[2]*deltaP[2]+targetValues[3]*deltaP[3]+targetValues[4]*deltaP[4]
+                    for i in range(remBlocskNum):
+                        targetValues[i]=targetValues[i]*deltaP[i]
+                    targetValues=sum(targetValues)
+                    # targetValues=sum(targetValues)/len(targetValues)
                     y=targetValues.gather(dim=-1,index=yAction)*maskList+rewardList
-                values=agent.online(clickList,eyeList,lastPList,lengths).gather(dim=-1,index=actionList)
+                values=agent.online(clickList,eyeList,lastPList,lengths)
+                for i in range(remBlocskNum):
+                    values[i]=values[i]*deltaP[i]
+                values=sum(values)
+                # values=values[0]*deltaP[0]+values[1]*deltaP[1]+values[2]*deltaP[2]+values[3]*deltaP[3]+values[4]*deltaP[4]
+                # values=sum(values)/len(values)
+                values=values.gather(dim=-1,index=actionList)
                 l = loss(values, y)
+                # if steps%100==0:
+                #     print(f'loss {l}')
+                #     for name,param in agent.online.named_parameters():
+                #         if param.requires_grad and param.grad is not None:
+                #             print(f'name {name} grad {param.grad}')
+
                 trainer.zero_grad()
                 l.backward()
                 trainer.step()
@@ -396,14 +415,16 @@ if __name__=='__main__':
     parser.add_argument('-net',type=int,default=1)
     parser.add_argument('-sup',type=str,default='50')
     parser.add_argument('-preload',type=bool,default=False)
-    parser.add_argument('-lr',type=float,default=0.05)
-    parser.add_argument('-layers',type=int,default=10)
+    parser.add_argument('-lr',type=float,default=0.0005)
+    parser.add_argument('-layers',type=int,default=3)
     parser.add_argument('-embed',type=int,default=128)
+    parser.add_argument('-rems',type=int,default=5)
 
     args=parser.parse_args()
     # device=torch.device('cpu')
     device = torch.device(args.cuda if torch.cuda.is_available() else 'cpu')
-    agent=RNNAgent(device=device,rnn_layer=args.layers,embed_n=args.embed)
+    # agent=RNNAgent(device=device,rnn_layer=args.layers,embed_n=args.embed)
+    agent=REMAgent(device=device,rnn_layer=args.layers,embed_n=args.embed)
     store=UTIL.getTimeStamp()
 
     if args.preload:
@@ -444,8 +465,8 @@ if __name__=='__main__':
         os.makedirs(store_path)
     with open(os.path.join(store_path,'envsinfo.txt'),'w') as f:
         f.write('envs'+str(envs)+'\n trainEnvs:'+str(envs)+'\n'+' lr:'+str(args.lr)+' preload: '+str(args.preload)+' device:'+str(device)\
-                +' layers: '+str(args.layers)+" embded: "+str(args.embed))
+                +' layers: '+str(args.layers)+" embded: "+str(args.embed)+' rems'+str(args.rems))
         if args.sup!='50':
             f.write('\n'+args.sup)
     train_epoch(agent, args.lr, 500, 256,device,args.mode,store_path=store_path,multienvs=envs,\
-                json_path=json_path,value_path=value_path,critic_loss_path=critic_loss_path)
+                json_path=json_path,value_path=value_path,critic_loss_path=critic_loss_path,remBlocskNum=args.rems)

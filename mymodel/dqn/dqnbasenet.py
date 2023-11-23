@@ -148,8 +148,81 @@ class DQNRNNNet(nn.Module):
         return self.value_fun(n)+self.adv_fun(n)
         
        
-        
+class REMMultiBlock(nn.Module):
+    def __init__(self,inputNum,extraNum,outNum,layers,funNum) -> None:
+        super(REMMultiBlock,self).__init__()
+        self.encorder=PolicyModule(inputNum,extraNum,outNum,layers)
+        self.valueFun=nn.Linear(funNum,1)
+        self.advFun=nn.Linear(funNum,13)
 
+    def forward(self,actions):
+        n=self.encorder(actions,actions)
+        return self.valueFun(n)+self.advFun(n)
+
+class REMNet(nn.Module):
+    def __init__(self,device,embed_n=64,rnn_layer=10,remBlocskNum=5):
+        super(REMNet, self).__init__()
+        # self.embedNum=embed_n
+        self.device=device
+        self.embedingEye=nn.Embedding(16,embed_n)
+        self.embedingClick=nn.Embedding(12,embed_n)
+        self.embedingClickN=nn.Embedding(12,embed_n)
+
+        self.clickMLP=nn.Sequential(nn.Linear(embed_n*3,embed_n),nn.LayerNorm(embed_n),nn.GELU())
+        self.clickMLPN=nn.Sequential(nn.Linear(embed_n*3,embed_n),nn.LayerNorm(embed_n),nn.GELU())
+        self.positionEncoder=nn.Embedding(3,embed_n)
+        self.positionEncoderN=nn.Embedding(3,embed_n)
+        self.rnnLayer=rnn_layer
+        
+        self.hnMLP=nn.Sequential(nn.Linear(embed_n*2,embed_n),nn.LayerNorm(embed_n),nn.GELU())
+        # self.rnn=torch.nn.RNN(embed_n*2,embed_n,rnn_layer,batch_first=True)
+        self.rnn=torch.nn.GRU(embed_n*2,embed_n,2,batch_first=True)
+
+        self.output=nn.Sequential(nn.LayerNorm(embed_n*2),nn.GELU(),nn.Linear(embed_n*2,13))
+        self.encoder=PolicyModule(embed_n*4,embed_n,embed_n*4,rnn_layer)
+        out_c=(rnn_layer+4)*embed_n
+        self.value_fun=nn.Linear(out_c,1)
+        self.adv_fun=nn.Linear(out_c,13)
+        self.remBlocks=nn.ModuleList()
+        for i in range(remBlocskNum):
+            self.remBlocks.append(REMMultiBlock(embed_n*4,embed_n,embed_n*4,rnn_layer,out_c))
+        self.embedNum=embed_n
+    
+    # eyelist-> [[],[],[]] clicklist-> [] tensor->long lengths->tensor not to cuda
+    # sequence first 
+    # eyelist-> len->20
+    # newClickList->3
+    def forward(self,clickList,eyeList,newClickList,lengths):
+        clickEmbed=self.embedingClick(clickList).squeeze(1)
+        positionTensor=torch.tensor([0,1,2],dtype=torch.long).to(self.device)
+        positionEmbed=self.positionEncoder(positionTensor)
+        clickEmbed+=positionEmbed     
+        clickEmbed=clickEmbed.view(len(lengths),1,-1)
+        clickEncode=self.clickMLP(clickEmbed)
+        newClickEmbed=self.embedingClickN(newClickList).squeeze(1)
+        newPositionTensor=torch.tensor([0,1,2],dtype=torch.long).to(self.device)
+        positionEmbedNew=self.positionEncoderN(newPositionTensor)
+        newClickEmbed+=positionEmbedNew
+        newClickEmbed=newClickEmbed.view(len(lengths),1,-1)
+        newClickEncode=self.clickMLPN(newClickEmbed)
+        eyeEmbed=self.embedingEye(eyeList).squeeze(1)
+        clickRepeat=clickEncode.repeat(1,eyeEmbed.shape[1],1)
+        state=torch.cat([eyeEmbed,clickRepeat],dim=-1).to(self.device)
+        statePack=torch.nn.utils.rnn.pack_padded_sequence(state,lengths,enforce_sorted=False,batch_first=True).to(self.device)
+        h0=torch.zeros(2,eyeEmbed.shape[0],self.embedNum).to(self.device)
+        actions,hn=self.rnn(statePack,h0)
+        actionPad,_=torch.nn.utils.rnn.pad_packed_sequence(actions,batch_first=True)
+        actions1=actionPad[[i for i in range(lengths.shape[0])],lengths-1,:].unsqueeze(1)
+        hn=torch.permute(hn,(1,0,2))
+        hnM=hn.reshape((lengths.shape[0],1,-1))
+        # hnM=self.hnMLP(hnM)
+        actions1=torch.cat([actions1,newClickEncode,hnM],dim=-1)
+        # n=self.encoder(actions1,actions1)
+        # return self.value_fun(n)+self.adv_fun(n)
+        ansList=[]
+        for layer in self.remBlocks:
+            ansList.append(layer(actions1))
+        return ansList
 
 class func(nn.Module):
     def __init__(self,net):
