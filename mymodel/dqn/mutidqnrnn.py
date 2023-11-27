@@ -107,31 +107,8 @@ class NumRecorder(object):
 
     def clear(self):
         self.recoder=[0 for i in range(self.nums)]
-class PresentsRecorder(object):
-
-    def __init__(self,num) -> None:
-        self.num=num
-        self.recorder=[[] for i in range(num)]
-        self.flag=[False for i in range(num)]
-    
-    # init with last3goal
-    def init(self,index,last3goal):
-        self.recorder[index]=dp(last3goal)
-
-
-
-    def add(self,index,num):
-        for i in range(2):
-            self.recorder[index][i]=self.recorder[index][i+1]
-        if num!=12:
-            self.recorder[index][2]=num
-
-
-    def getLastPresents(self,index):
-        return dp(self.recorder[index])
-
         
-def train_epoch(agent:Agent, lr, epochs, batch_size,device,mode,multienvs,testEnvs,store_path=None,json_path=None,value_path=None,critic_loss_path=None):
+def train_epoch(agent:Agent, lr, epochs, batch_size,device,mode,multienvs,testEnvs,remBlocskNum=5,store_path=None,json_path=None,value_path=None,critic_loss_path=None):
     # random.seed(None)
     # np.random.seed(None)
     agent.online.to(device)
@@ -141,7 +118,7 @@ def train_epoch(agent:Agent, lr, epochs, batch_size,device,mode,multienvs,testEn
     EPOSILON_END=0.02
     # ebuffer=ExampleBuffer(2**17)
     trainer = torch.optim.Adam(lr=lr, params=agent.online.parameters())
-    loss=nn.MSELoss()
+    loss=nn.HuberLoss()
     agentBuffer=ReplayBufferRNN(2**17,device)
     if not os.path.exists(store_path):
         os.makedirs(store_path)
@@ -177,19 +154,29 @@ def train_epoch(agent:Agent, lr, epochs, batch_size,device,mode,multienvs,testEn
     envPaths=[]
     trajectorys=[]
     testenvs=[]
+    trainNum=[]
+    testNum=[]
     for env in multienvs:
         envPath=os.path.join('/home/wu_tian_ci/eyedata/seperate/',env,'1')
         envs.append(DQNRNNEnv(envPath))
         envFlags.append(False)
         envPaths.append(envPath)
         trajectorys.append(DQNRNNTrajectory())
-    trajectorys.append(DQNRNNTrajectory())
+        trainNum.append(float(env))
+    # envPath=os.path.join('/home/wu_tian_ci/eyedata/seperate/','22','1')
+    # trainNum.append(22.0)
+    # e=DQNRNNEnv(envPath)
+    # e.topN=5
+    # e.shuffle=False
+    # envs.append(e)
+    # trajectorys.append(DQNRNNTrajectory())
     for i in range(len(envs)):
         envs[i].load_dict()
         envs[i].get_file()
     for env in testEnvs:
         testEnvPath=os.path.join('/home/wu_tian_ci/eyedata/seperate/',env,'1')
         testenvs.append(DQNRNNEnv(testEnvPath))
+        testNum.append(float(env))
 
     beginFlags=[True for i in range(len(envs))]
 
@@ -223,14 +210,16 @@ def train_epoch(agent:Agent, lr, epochs, batch_size,device,mode,multienvs,testEn
         traLenOverThree=0
         endInNoAct=0
         endOutNoAct=0
+        processReward=[]
         # 100
-        for steps in range(750):
+        for steps in range(500):
             eyeList=[]
             clickList=[]
             indexes=[]
             lastPList=[]
             lengthsList=[]
-            # ans -> eye click goal isEnd
+            personList=[]
+            # ans -> eye click goal isEnd length
             for i in range(len(envs)):
                 ans=envs[i].act()
                 if isinstance(ans,bool):
@@ -241,15 +230,17 @@ def train_epoch(agent:Agent, lr, epochs, batch_size,device,mode,multienvs,testEn
                 else:
                     # print(ans[0],len(ans[0]))
                     eye=torch.tensor(ans[0],dtype=torch.long)
-                    click=torch.tensor([ans[1]],dtype=torch.long).to(device)
+                    click=torch.tensor(ans[1],dtype=torch.long).to(device)
                     lengths=torch.tensor(ans[4],dtype=torch.long)
+                    person=torch.tensor([trainNum[i]],dtype=torch.float32).to(device)
                     if prTrain.flag[i]==False:
                         prTrain.init(i,ans[1])
-                    lastP=torch.tensor([prTrain.getLastPresents(i)],dtype=torch.long).to(device)
+                    lastP=torch.tensor(prTrain.getLastPresents(i),dtype=torch.long).to(device)
                     lastPList.append(lastP)
                     eyeList.append(eye)
                     clickList.append(click)
                     lengthsList.append(lengths)
+                    personList.append(person)
                     # ans -> eye click goal isEnd
                     doneFlag=0
                     if ans[3]==1:
@@ -258,16 +249,16 @@ def train_epoch(agent:Agent, lr, epochs, batch_size,device,mode,multienvs,testEn
                         doneFlag=1
                     # print(ans[3])
                     # click,eye,goal,action,mask
-                    trajectorys[i].push(click,eye,ans[2],0,doneFlag*UTIL.GAMMA,lastP,lengths)
+                    trajectorys[i].push(click,eye,ans[2],0,doneFlag*UTIL.GAMMA,lastP,lengths,person)
                     indexes.append(i)
                     if ans[3]==1:
                         beginFlags[i]=True
-                        # print(clickList)
-            clickCat=torch.cat(clickList,dim=0).to(device)
-            lastPCat=torch.cat(lastPList,dim=0).to(device)
+            clickCat=torch.stack(clickList,dim=0).to(device)
+            lastPCat=torch.stack(lastPList,dim=0).to(device)
             lengthStack=torch.stack(lengthsList,dim=0)
-            eyeList=torch.stack(eyeList,dim=0).to(device)
-            actions=agent.act(clickCat,eyeList,lastPCat,lengthStack)
+            eyeStack=torch.stack(eyeList,dim=0).to(device)
+            personStack=torch.stack(personList,dim=0).to(device).unsqueeze(1)
+            actions=agent.act(clickCat,eyeStack,lastPCat,lengthStack,personStack)
             # print(f' aaaaa {actions}')
             for actS,index in zip(actions,indexes):
                 prTrain.add(index,actS)
@@ -304,6 +295,7 @@ def train_epoch(agent:Agent, lr, epochs, batch_size,device,mode,multienvs,testEn
                     endOut+=int(traInfo[6])^1
                     rewards.append(traInfo[7])
                     endAveReward.append(traInfo[8])
+                    processReward.append(traInfo[7]-traInfo[8])
                     inNoAct+=traInfo[9]
                     outNoAct+=traInfo[10]
                     if traInfo[0]>=3:
@@ -315,29 +307,45 @@ def train_epoch(agent:Agent, lr, epochs, batch_size,device,mode,multienvs,testEn
                         endOutNoAct+=int(traInfo[12])^1
                     
                     agentBuffer.push(TDZeroList)
-
-     
                     trajectorys[index].clear()
             dbatch_size=int((1+(agentBuffer.getRatio()))*batch_size)
             if (agentBuffer.holding>=dbatch_size):
+                # print('train')
                 if not is_training:
                     with open(reward_path,'a') as f:
                         f.write('begin to train\n')
                     is_training=True
-                click,eye,action,nextClick,nextEye,mask,reward,seq,nseq = agentBuffer.sample(dbatch_size)
+                clickList,eyeList,lastPList,lengths,person,actionList,rewardList,maskList,nclickList,neyeList,nlastPList,nlengths,nperson= agentBuffer.sample(dbatch_size)
+                deltaP = torch.rand(remBlocskNum).to(device)
+                deltaP =deltaP/ deltaP.sum()
                 with torch.no_grad():
-                    onlineValues=agent.online(nextClick,nextEye,nseq)
+                    onlineValues=agent.online(clickList,eyeList,lastPList,lengths,person)
+                    onlineValues=sum(onlineValues)/len(onlineValues)
                     yAction=torch.argmax(onlineValues,dim=-1,keepdim=True)
-                    targetValues=agent.target(nextClick,nextEye,nseq)
-                    y=targetValues.gather(dim=-1,index=yAction)*mask+reward
-                values=agent.online(click,eye,seq).gather(dim=-1,index=action)
+                    targetValues=agent.target(nclickList,neyeList,nlastPList,nlengths,nperson)
+                    for i in range(remBlocskNum):
+                        targetValues[i]=targetValues[i]*deltaP[i]
+                    targetValues=sum(targetValues)
+                    y=targetValues.gather(dim=-1,index=yAction)*maskList+rewardList
+                values=agent.online(clickList,eyeList,lastPList,lengths,person)
+                for i in range(remBlocskNum):
+                    values[i]=values[i]*deltaP[i]
+                values=sum(values)
+                values=values.gather(dim=-1,index=actionList)
                 l = loss(values, y)
+                # if steps%100==0:
+                #     print(f'loss {l}')
+                #     for name,param in agent.online.named_parameters():
+                #         if param.requires_grad and param.grad is not None:
+                #             print(f'name {name} grad {param.grad}')
+
                 trainer.zero_grad()
                 l.backward()
                 trainer.step()
-                clp.add(l.cpu().detach().numpy().tolist())
+                # clp.add(l.cpu().detach().numpy().tolist())
                 if  steps%10==0 and steps!=0:
                     agent.update()
+       
         for i in range(len(testenvs)):
             testenvs[i].load_dict()
             testenvs[i].get_file()
@@ -363,7 +371,7 @@ def train_epoch(agent:Agent, lr, epochs, batch_size,device,mode,multienvs,testEn
         traLenOverThreeTest=0
         endInNoActTest=0
         endOutNoActTest=0
-        testTras=[DQNTrajectory() for i in range(surviveFlags)]
+        testTras=[DQNRNNTrajectory() for i in range(surviveFlags)]
         testInOutList=[[0,0] for i in range(surviveFlags)]
         testInOutListNoAction=[[0,0] for i in range(surviveFlags)]
         testInOuEndtList=[[0,0] for i in range(surviveFlags)]
@@ -375,6 +383,7 @@ def train_epoch(agent:Agent, lr, epochs, batch_size,device,mode,multienvs,testEn
                 testLastPList=[]
                 testIndexesList=[]
                 testLengthsList=[]
+                testPersonList=[]
                 for i in range(len(testEnvs)):
                     if stopFlags[i]:
                         continue
@@ -384,17 +393,19 @@ def train_epoch(agent:Agent, lr, epochs, batch_size,device,mode,multienvs,testEn
                         surviveFlags-=1
                         continue
                     else:
-                                           # print(ans[0],len(ans[0]))
+                        # print(ans[0],len(ans[0]))
                         eye=torch.tensor(ans[0],dtype=torch.long)
-                        click=torch.tensor([ans[1]],dtype=torch.long).to(device)
+                        click=torch.tensor(ans[1],dtype=torch.long).to(device)
                         lengths=torch.tensor(ans[4],dtype=torch.long)
+                        person=torch.tensor([testNum[i]],dtype=torch.float32).to(device)
                         if prTest.flag[i]==False:
                             prTest.init(i,ans[1])
-                        lastP=torch.tensor([prTrain.getLastPresents(i)],dtype=torch.long).to(device)
+                        lastP=torch.tensor(prTest.getLastPresents(i),dtype=torch.long).to(device)
                         testLastPList.append(lastP)
                         testEyeList.append(eye)
                         testClickList.append(click)
                         testLengthsList.append(lengths)
+                        testPersonList.append(person)
                         # ans -> eye click goal isEnd
                         doneFlag=0
                         if ans[3]==1:
@@ -403,25 +414,24 @@ def train_epoch(agent:Agent, lr, epochs, batch_size,device,mode,multienvs,testEn
                             doneFlag=1
                         # print(ans[3])
                         # click,eye,goal,action,mask
-                        trajectorys[i].push(click,eye,ans[2],0,doneFlag*UTIL.GAMMA,lastP,lengths)
-                        indexes.append(i)
-                        if ans[3]==1:
-                            beginFlags[i]=True
+                        testTras[i].push(click,eye,ans[2],0,doneFlag*UTIL.GAMMA,lastP,lengths,person)
+                        testIndexesList.append(i)
                             # print(clickList)
                 if surviveFlags<=0:
                     break
-                testClickCat=torch.cat(testClickList,dim=0).to(device)
-                testLastPCat=torch.cat(lastPList,dim=0).to(device)
-                testLengthStack=torch.stack(lengthsList,dim=0)
-                testEyeList=torch.stack(eyeList,dim=0).to(device)
-                testActions=agent.act(clickCat,eyeList,lastPCat,lengthStack)
+                testClickStack=torch.stack(testClickList,dim=0).to(device)
+                testLastPStack=torch.stack(testLastPList,dim=0).to(device)
+                testLengthStack=torch.stack(testLengthsList,dim=0)
+                testEyeListStack=torch.stack(testEyeList,dim=0).to(device)
+                testPersonListStack=torch.stack(testPersonList,dim=0).to(device).unsqueeze(1)
+                testActions=agent.act(testClickStack,testEyeListStack,testLastPStack,testLengthStack,testPersonListStack)
+                # print(f'actions {testActions}')
                 if testActions.shape==():
                     testActions=[testActions]
                 for testAction,testIndex in zip(testActions,testIndexesList):
                     testTras[testIndex].tras[-1][3]=dp(testAction)
                     if testTras[testIndex].tras[-1][4]==0:
                         testTras[testIndex].getNewTras()
-
                         traInfoTest=testTras[testIndex].getInfo()
                         if traInfoTest[0]>1:
                             traLenOverOneTest+=traInfoTest[0]
@@ -432,6 +442,7 @@ def train_epoch(agent:Agent, lr, epochs, batch_size,device,mode,multienvs,testEn
                         totalOutTest+=traInfoTest[5]
                         testInOutList[testIndex][0]+=traInfoTest[4]
                         testInOutList[testIndex][1]+=traInfoTest[5]
+                        # print(testInOutList)
                         endInTest+=traInfoTest[6]
                         endOutTest+=int(traInfoTest[6])^1
                         testInOuEndtList[testIndex][0]+=traInfoTest[6]
@@ -470,7 +481,11 @@ def train_epoch(agent:Agent, lr, epochs, batch_size,device,mode,multienvs,testEn
             inOutList.append(testInOutList[i][0]/(testInOutList[i][0]+testInOutList[i][1]))
             inOutListNoAction.append(testInOutListNoAction[i][0]/(testInOutListNoAction[i][0]+testInOutListNoAction[i][1]))
             endInOutList.append(testInOuEndtList[i][0]/(testInOuEndtList[i][0]+testInOuEndtList[i][1]))
-            endInOutListNoAction.append(testInOutEndListNoAction[i][0]/(testInOutEndListNoAction[i][0]+testInOutEndListNoAction[i][1]))
+            try:
+                endInOutListNoAction.append(testInOutEndListNoAction[i][0]/(testInOutEndListNoAction[i][0]+testInOutEndListNoAction[i][1]))
+            except:
+                print('error')
+                endInOutListNoAction.append(0)
         inOutMean=np.mean(inOutList)
         endInOutMean=np.mean(endInOutList)
         inOutNoActionMean=np.mean(inOutListNoAction)
@@ -571,11 +586,14 @@ if __name__=='__main__':
     parser.add_argument('-net',type=int,default=1)
     parser.add_argument('-sup',type=str,default='50')
     parser.add_argument('-preload',type=bool,default=False)
-    parser.add_argument('-lr',type=float,default=0.05)
+    parser.add_argument('-lr',type=float,default=0.0005)
+    parser.add_argument('-layers',type=int,default=5)
+    parser.add_argument('-embed',type=int,default=128)
+    parser.add_argument('-rems',type=int,default=5)
 
     args=parser.parse_args()
     device = torch.device(args.cuda if torch.cuda.is_available() else 'cpu')
-    agent=RNNAgent(device=device)
+    agent=REMAgent(device=device,rnn_layer=args.layers,embed_n=args.embed)
     store=UTIL.getTimeStamp()
 
     if args.preload:
@@ -614,8 +632,8 @@ if __name__=='__main__':
     trainEnvs=[]
     testEnvs=[]
     
-    b=[6,9, 13, 16,14, 17]
-    a=[ 2,4,7,8,11,12,21,3, 5 ,10 ,15 ,18 ,19,20]
+    b=[i for i in range(17,22)]
+    a=[ i for i in range(2,17)]
     for num in a:
         if num>=10:
             trainEnvs.append(str(num))
@@ -633,4 +651,4 @@ if __name__=='__main__':
         if args.sup!='50':
             f.write('\n'+args.sup)
     train_epoch(agent, args.lr, 500, 256,device,args.mode,store_path=store_path,multienvs=trainEnvs,testEnvs=testEnvs,\
-                json_path=json_path,value_path=value_path,critic_loss_path=critic_loss_path)
+                json_path=json_path,value_path=value_path,critic_loss_path=critic_loss_path,remBlocskNum=args.rems)

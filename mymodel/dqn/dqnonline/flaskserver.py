@@ -167,12 +167,11 @@ class TrainModel(object):
     def __init__(self) -> None:
 
         self.device=torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
-        # self.device=torch.device('cpu')
         # train 
-        self.agent=RNNAgent(device=self.device,rnn_layer=5,embed_n=128)
+        self.agent=REMAgent(device=self.device,rnn_layer=5,embed_n=128)
 
         #predict
-        self.predictModel=RNNAgent(device=self.device,rnn_layer=5,embed_n=128)
+        self.predictModel=REMAgent(device=self.device,rnn_layer=5,embed_n=128)
 
         # 
         self.isTraining=False
@@ -204,12 +203,13 @@ class TrainModel(object):
         # for test people data
         self.trainBuffer=ReplayBufferRNN(2**17,self.device)
         self.batchSize=8
-        self.lr=0.03
-        self.agent.load('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231117/trainall/103611/dqnnetoffline.pt')
-        self.predictModel.load('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231117/trainall/103611/dqnnetoffline.pt')
+        self.lr=0.0003
+        self.agent.load('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231122/trainall/231231/dqnnetoffline.pt')
+        self.predictModel.load('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231122/trainall/231231/dqnnetoffline.pt')
         self.baseStorePath='/home/wu_tian_ci/eyedatanew'
         self.dc=DataCreater()
         self.newFileNums=0
+        self.remBlocskNum=5
 
     # multi threading
     def train(self):
@@ -273,7 +273,7 @@ class TrainModel(object):
             endInNoAct=0
             endOutNoAct=0
             # 100
-            for steps in range(500):
+            for steps in range(300):
 
                 if self.stop:
                     with modelConditioner:
@@ -389,11 +389,14 @@ class TrainModel(object):
         
                         trajectorys[index].clear()
                 # print(f'end train {self.trainBuffer.holding} {self.dataSetBuffer.holding}')
+                
                 datasetBatchSize=int((1+(self.dataSetBuffer.getRatio()))*self.batchSize*4)
                 if self.dataSetBuffer.holding<datasetBatchSize:
                     continue
                 with bufferConditioner:
                     trainBatchSize=int((1+(self.trainBuffer.getRatio()))*self.batchSize)
+                if trainBatchSize*2 > self.trainBuffer.capacity and self.batchSize<256:
+                    self.batchSize*=2
                 clickList,eyeList,lastPList,lengths,actionList,rewardList,maskList,nclickList,neyeList,nlastPList,nlengths = self.dataSetBuffer.sample(datasetBatchSize)
                 clickListT,eyeListT,lastPListT,lengthsT,actionListT,rewardListT,maskListT,nclickListT,neyeListT,nlastPListT,nlengthsT = self.trainBuffer.sample(trainBatchSize)
                 clickList=torch.cat([clickList,clickListT],dim=0)
@@ -409,17 +412,27 @@ class TrainModel(object):
                 nlengths=torch.cat([nlengths,nlengthsT],dim=0)
                 
         
+                deltaP = torch.rand(self.remBlocskNum).to(device)
+                deltaP =deltaP/ deltaP.sum()
                 with torch.no_grad():
                     onlineValues=self.agent.online(clickList,eyeList,lastPList,lengths)
+                    onlineValues=sum(onlineValues)/len(onlineValues)
                     yAction=torch.argmax(onlineValues,dim=-1,keepdim=True)
                     targetValues=self.agent.target(nclickList,neyeList,nlastPList,nlengths)
+                    for i in range(self.remBlocskNum):
+                        targetValues[i]=targetValues[i]*deltaP[i]
+                    targetValues=sum(targetValues)
                     y=targetValues.gather(dim=-1,index=yAction)*maskList+rewardList
-                values=self.agent.online(clickList,eyeList,lastPList,lengths).gather(dim=-1,index=actionList)
+                values=self.agent.online(clickList,eyeList,lastPList,lengths)
+                for i in range(self.remBlocskNum):
+                    values[i]=values[i]*deltaP[i]
+                values=sum(values)
+                values=values.gather(dim=-1,index=actionList)
                 l = loss(values, y)
                 trainer.zero_grad()
                 l.backward()
                 trainer.step()
-                if  steps%5==0 and steps!=0:
+                if steps%10==0 and steps!=0:
                     self.agent.update()
 
             t_reward_len+=1
@@ -487,7 +500,17 @@ class TrainModel(object):
                     'total_reward: '+str(info[3])+' end_reward: '+str(info[4])+' ave_reward:'+str(round(info[4]/info[0],2))+'\n'+\
                     'end_acc: '+str(round(float(np.sum(self.onlineAcc))/len(self.onlineAcc),2))+' ave_acc: '+str(round(float(np.sum(self.onlineAveAcc)/np.sum(self.onlineLen)),2))+'\n')
         self.predictCnts+=1
-
+    
+    '''
+    name:snapping
+    TODO:write txt into file->self.onlineReward
+    time:2023.11.23
+    params:writeTxt write content
+    return: None
+    '''
+    def writeTxt(self,writeTxt='\n'):
+        with open(self.onlineReward,'a') as f:
+            f.write(writeTxt)
 
     def predict(self,*data):
         clickList,eyeList,length,lastP,clickRegion,state=data
@@ -507,6 +530,7 @@ class TrainModel(object):
         print(f'predict {int(ans)}')
         mask=UTIL.GAMMA
         if state==0:
+            print(f'add')
             self.tras.setGoal(clickRegion)
             self.numberRecorder=0
             self.tras.getNewTras()
@@ -615,6 +639,7 @@ def excuteOrder():
         responseDict['data']=True
         responseDict['flag']=0
         responseDict['message']='success'
+        model.writeTxt('\nend\n\n')
     responseJson=json.dumps(responseDict)
     response=make_response(responseJson)
     return response

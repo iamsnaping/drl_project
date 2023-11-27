@@ -469,6 +469,11 @@ class ReplayBufferRNN(object):
         self.capacity=maxLen
         self.lengths=torch.empty((maxLen),dtype=torch.long)
         self.nlengths=torch.empty((maxLen),dtype=torch.long)
+
+        self.person=torch.empty((maxLen,1),dtype=torch.float32).to(device)
+        self.nperson=torch.empty((maxLen,1),dtype=torch.float32).to(device)
+
+
         self.clickList=torch.empty((maxLen,3),dtype=torch.long).to(device)
         self.eyeList=torch.empty((maxLen,10),dtype=torch.long).to(device)
         self.lastPList=torch.empty((maxLen,3),dtype=torch.long).to(device)
@@ -493,7 +498,7 @@ class ReplayBufferRNN(object):
     # memoList -> [[click],[eye],[length(eye)]] ->tensor
     # clickList,eyeList,actionList,maskList,rewardList,nclickList,neyeList
     def push(self,memoTuple:tuple):
-        clickList,eyeList,lastPList,lengths,goalList,actionList,rewardList,maskList,nclickList,neyeList,nlastPList,nlenghts=memoTuple
+        clickList,eyeList,lastPList,lengths,person,goalList,actionList,rewardList,maskList,nclickList,neyeList,nlastPList,nlenghts,nperson=memoTuple
         cursor=len(lengths)+self.cursor
         if cursor>self.capacity:
             c1=cursor-self.capacity
@@ -510,7 +515,8 @@ class ReplayBufferRNN(object):
             self.rewardList[self.cursor:]=rewardList[0:c2]
             self.lastPList[self.cursor:]=lastPList[0:c2]
             self.nlastPList[self.cursor:]=nlastPList[0:c2]
-
+            self.person[self.cursor:]=person[0:c2]
+            self.nperson[self.cursor:]=nperson[0:c2]
 
             self.lengths[0:c1]=lengths[c2:]
             self.nlengths[0:c1]=nlenghts[c2:]
@@ -523,6 +529,9 @@ class ReplayBufferRNN(object):
             self.neyeList[0:c1]=neyeList[c2:]
             self.lastPList[0:c1]=lastPList[c2:]
             self.nlastPList[0:c1]=nlastPList[c2:]
+
+            self.person[0:c1]=person[c2:]
+            self.nperson[0:c1]=nperson[c2:]
 
             if not self.isFull:
                 self.holding=self.capacity
@@ -539,6 +548,10 @@ class ReplayBufferRNN(object):
             self.rewardList[self.cursor:cursor]=rewardList
             self.lastPList[self.cursor:cursor]=lastPList
             self.nlastPList[self.cursor:cursor]=nlastPList
+
+            self.person[self.cursor:cursor]=person
+            self.nperson[self.cursor:cursor]=nperson
+
             self.cursor=cursor%self.capacity
             if not self.isFull:
                 if cursor==self.capacity:
@@ -565,6 +578,8 @@ class ReplayBufferRNN(object):
         nlengths=self.nlengths[indexes]
         lastPList=self.lastPList[indexes]
         nlastPList=self.nlastPList[indexes]
+        person=self.person[indexes]
+        nperson=self.nperson[indexes]
 
 
         actionList=torch.tensor(actionList,dtype=torch.long).reshape(-1,1,1).to(self.device)
@@ -576,7 +591,10 @@ class ReplayBufferRNN(object):
         nlastPList=torch.squeeze(nlastPList,dim=1)
         eyeList=torch.squeeze(eyeList,dim=1)
         neyeList=torch.squeeze(neyeList,dim=1)
-        return clickList,eyeList,lastPList,lengths,actionList,rewardList,maskList,nclickList,neyeList,nlastPList,nlengths
+        person=torch.unsqueeze(person,dim=1)
+        nperson=torch.unsqueeze(nperson,dim=1)
+
+        return clickList,eyeList,lastPList,lengths,person,actionList,rewardList,maskList,nclickList,neyeList,nlastPList,nlengths,nperson
 
 class DQNRNNTrajectory(object):
     def __init__(self) -> None:
@@ -623,10 +641,12 @@ class DQNRNNTrajectory(object):
         lastPList=[]
         nlastPList=[]
         neyeList=[]
+        personList=[]
+        npersonList=[]
         for i in range(traLen-1):
-            click,eye,goal,action,mask,reward,lastP,length=self.newTras[i]
+            click,eye,goal,action,mask,reward,lastP,length,person=self.newTras[i]
             # print(click,eye,goal,action,mask,reward)
-            nclick,neye,ngoal,naction,nmask,nreward,nlastP,nlength=self.newTras[i+1]
+            nclick,neye,ngoal,naction,nmask,nreward,nlastP,nlength,npersion=self.newTras[i+1]
             # zTra.append([click,eye,len(eye),goal,action,mask,reward,nclick,neye,len(neye)])
             clickList.append(click) # tensor
             eyeList.append(eye) # tensor
@@ -640,13 +660,16 @@ class DQNRNNTrajectory(object):
             lengths.append(length)# long
             lastPList.append(lastP)
             nlastPList.append(nlastP)
-        click,eye,goal,action,mask,reward,lastP,length=self.newTras[-1]
+
+            personList.append(person)
+            npersonList.append(npersion)
+        click,eye,goal,action,mask,reward,lastP,length,persion=self.newTras[-1]
         if int(0.5+mask)==0:
             # length=torch.tensor(len(eye),dtype=torch.long)
             # nlength=torch.tensor(len(eye),dtype=torch.long)
-            nclick=torch.tensor([0 for i in range(len(click))],dtype=torch.long)
-            neye=torch.tensor([0 for i in range(len(eye))],dtype=torch.long)
-            nlastP=torch.tensor([0 for i in range(len(lastP))],dtype=torch.long)
+            nclick=torch.tensor([0 for i in range(len(click))],dtype=torch.long).to(click.device)
+            neye=torch.tensor([0 for i in range(len(eye))],dtype=torch.long).to(eye.device)
+            nlastP=torch.tensor([0 for i in range(len(lastP))],dtype=torch.long).to(lastP.device)
             # zTra.append([click,eye,length,goal,action,0,reward,nclick,neye,nlength])
             clickList.append(click) # tensor
             eyeList.append(eye) # tensor
@@ -660,16 +683,21 @@ class DQNRNNTrajectory(object):
             lengths.append(length)# long
             lastPList.append(lastP)
             nlastPList.append(nlastP)
+
+            personList.append(persion)
+            npersonList.append(persion)
         lengths=torch.stack(lengths,dim=0)
         nlenghts=torch.stack(nlenghts,dim=0)
-        clickList=torch.cat(clickList,dim=0)
-        nclickList=torch.cat(nclickList,dim=0)
-        lastPList=torch.cat(lastPList,dim=0)
-        nlastPList=torch.cat(nlastPList,dim=0)
+        npersonList=torch.stack(npersonList,dim=0)
+        personList=torch.stack(personList,dim=0)
+        clickList=torch.stack(clickList,dim=0)
+        nclickList=torch.stack(nclickList,dim=0)
+        lastPList=torch.stack(lastPList,dim=0)
+        nlastPList=torch.stack(nlastPList,dim=0)
 
         eyeList=torch.stack(eyeList,dim=0)
         neyeList=torch.stack(neyeList,dim=0)
-        return clickList,eyeList,lastPList,lengths,goalList,actionList,rewardList,maskList,nclickList,neyeList,nlastPList,nlenghts
+        return clickList,eyeList,lastPList,lengths,personList,goalList,actionList,rewardList,maskList,nclickList,neyeList,nlastPList,nlenghts,npersonList
 
     # n-> n+1 steps
     # def getComTraN(self,N=2):
@@ -702,7 +730,7 @@ class DQNRNNTrajectory(object):
         traLen=len(self.tras)
         self.aveLen.append(traLen)
         # self.distribution[traLen]+=1
-        present=self.tras[0][0][0][-1]
+        present=self.tras[0][0][-1]
         presents=[]
         # self.rewardFun.initPrediction(self.tras[0][0][0])
         errorFlags=[]
@@ -710,7 +738,7 @@ class DQNRNNTrajectory(object):
         self.rewardFun.lastErrors=0
         self.rewardFun.prediction=[]
         for i in range(traLen):
-            click,eye,goal,action,mask,lastP,length=self.tras[i]
+            click,eye,goal,action,mask,lastP,length,person=self.tras[i]
             # print(f'action {action} p {presents}')
             presents.append(present)
             if action!=12:
@@ -725,7 +753,7 @@ class DQNRNNTrajectory(object):
         self.rewardFun.prediction=[]
         # print(f'presnts0 {presents}')
         for i in range(traLen-1,-1,-1):
-            click,eye,goal,action,mask,lastP,length=self.tras[i]
+            click,eye,goal,action,mask,lastP,length,person=self.tras[i]
             # print(f'presents {presents }')
             # print(f'3 {self.rewardFun.prediction} {mask} {i} {traLen} {self.tras}')
             reward=self.rewardFun.getReward(action,goal,mask,presents[i],errorFlags[i])
@@ -735,12 +763,12 @@ class DQNRNNTrajectory(object):
                         self.noActionNumWithThreshold+=1
                     self.noActionNum+=1
 
-            self.newTras.append([click,eye,goal,action,mask,reward,lastP,length])
+            self.newTras.append([click,eye,goal,action,mask,reward,lastP,length,person])
     
     def push(self,*data):
-        click,eye,goal,action,mask,lastP,length=dp(data)
+        click,eye,goal,action,mask,lastP,length,person=dp(data)
         # traNum=len(self.tras)
-        self.tras.append([click,eye,goal,action,mask,lastP,length])
+        self.tras.append([click,eye,goal,action,mask,lastP,length,person])
     
 
     def setGoal(self,goal):
@@ -759,11 +787,11 @@ class DQNRNNTrajectory(object):
         inNoAct,outNoAct=0.,0.
         rewards,endRewards=0.,0.
         # print(self.newTras[0][0])
-        present=self.newTras[0][0][0][-1].cpu().detach().numpy()
+        present=self.newTras[0][0][-1].cpu().detach().numpy()
         lastWithNoAction=0
         endInOutNoAction=-1
         for tra in self.newTras:
-            click,eye,goal,action,mask,reward,lastP,length=tra
+            click,eye,goal,action,mask,reward,lastP,length,person=tra
             rewards+=reward
             if action==12:
                 self.noAction.append(1)
@@ -815,7 +843,7 @@ class DQNRNNTrajectory(object):
         totalReward=0
         endReward=0
         for tra in self.newTras:
-            click,eye,goal,action,mask,reward,seq=tra
+            click,eye,goal,action,mask,reward,lastP,length,person=tra
             if action!=12:
                 present=action
             if present==goal:
@@ -958,7 +986,33 @@ class DQNDataRecorder(object):
         for i in range(1,self.size+1):
             dataStr+=self.strFunc(self.list,self.recordTimes,i)+'\n'
         return dataStr
+class PresentsRecorder(object):
 
+    def __init__(self,num) -> None:
+        self.num=num
+        self.recorder=[[] for i in range(num)]
+        self.flag=[False for i in range(num)]
+    
+    # init with last3goal
+    def init(self,index,last3goal):
+        self.recorder[index]=dp(last3goal)
+
+    def addRecorder(self):
+        self.recorder.append([])
+        self.flag.append(False)
+        self.num+=1
+
+    def add(self,index,num):
+        for i in range(2):
+            self.recorder[index][i]=self.recorder[index][i+1]
+        if num!=12:
+            self.recorder[index][2]=num
+
+
+    def getLastPresents(self,index):
+        return dp(self.recorder[index])
+
+   
 
 if __name__ == '__main__':
     print(getTimeStamp()[4:-6])

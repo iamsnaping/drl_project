@@ -111,8 +111,8 @@ class REMAgent(object):
         self.target.load_state_dict(self.online.state_dict())
     
 
-    def act(self,click,eye,clickP,lengths):
-        actions=self.online(click,eye,clickP,lengths)
+    def act(self,click,eye,clickP,lengths,person):
+        actions=self.online(click,eye,clickP,lengths,person)
         actions=sum(actions)/len(actions)
         maxAction=torch.argmax(actions,dim=-1)
         action=maxAction.squeeze().cpu().detach().numpy()

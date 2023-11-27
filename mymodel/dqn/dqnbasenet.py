@@ -167,6 +167,8 @@ class REMNet(nn.Module):
         self.embedingEye=nn.Embedding(16,embed_n)
         self.embedingClick=nn.Embedding(12,embed_n)
         self.embedingClickN=nn.Embedding(12,embed_n)
+        
+        self.personMLP=nn.Sequential(nn.Linear(1,embed_n*4),nn.LayerNorm(embed_n*4),nn.GELU())
 
         self.clickMLP=nn.Sequential(nn.Linear(embed_n*3,embed_n),nn.LayerNorm(embed_n),nn.GELU())
         self.clickMLPN=nn.Sequential(nn.Linear(embed_n*3,embed_n),nn.LayerNorm(embed_n),nn.GELU())
@@ -192,7 +194,7 @@ class REMNet(nn.Module):
     # sequence first 
     # eyelist-> len->20
     # newClickList->3
-    def forward(self,clickList,eyeList,newClickList,lengths):
+    def forward(self,clickList,eyeList,newClickList,lengths,person):
         clickEmbed=self.embedingClick(clickList).squeeze(1)
         positionTensor=torch.tensor([0,1,2],dtype=torch.long).to(self.device)
         positionEmbed=self.positionEncoder(positionTensor)
@@ -217,6 +219,8 @@ class REMNet(nn.Module):
         hnM=hn.reshape((lengths.shape[0],1,-1))
         # hnM=self.hnMLP(hnM)
         actions1=torch.cat([actions1,newClickEncode,hnM],dim=-1)
+        personPosition=self.personMLP(person)
+        actions1+=personPosition
         # n=self.encoder(actions1,actions1)
         # return self.value_fun(n)+self.adv_fun(n)
         ansList=[]

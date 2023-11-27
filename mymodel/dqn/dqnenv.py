@@ -382,7 +382,7 @@ class DQNRNNEnv:
         self.action_list=[]
         # 1-> origin  2-> not origin
         self.state_mode=1
-        self.shuffle=False
+        self.shuffle=True
         self.regularPath=[]
         self.topN=-1
         self.isRegular=[]
@@ -400,6 +400,9 @@ class DQNRNNEnv:
             self.files_path.append(p)
 
     def load_dict(self):
+        if self.shuffle:
+            random.shuffle(self.files_path)
+            random.shuffle(self.files_path)
         if self.isRegular:
             self.regular()
         else:
@@ -410,11 +413,6 @@ class DQNRNNEnv:
                 self.files_path=self.files_path[0:self.topN]
         self.current_dir_len=len(self.files_path)
 
-        if self.shuffle:
-            # random.seed(None)
-            # np.random.seed(None)
-            random.shuffle(self.files_path)
-            random.shuffle(self.files_path)
 
     def get_file(self, appoint_path=None):
         if appoint_path is not None:
@@ -634,52 +632,59 @@ class DQNRNNEnv:
 
 if __name__ == '__main__':
 
-    t=0
-    total=[0 for i in range(500)]
-    totalT=[0 for i in range(50)]
-    for i in range(2,22):
-        if i<10:
-            envNum='0'+str(i)
-        else:
-            envNum=str(i)
-        env2=DQNRNNEnv(os.path.join('/home/wu_tian_ci/eyedata/seperate/',envNum,'1'))
-        env2.load_dict()
-        env2.get_file()
-        k=0
-        print(envNum)
-        while True:
-            ans=env2.act()
-            if isinstance(ans,bool):
-                if k!=0:
-                    total[k]+=1
-                break
-                # env.refresh()
-            else:
-                # print(ans)                
-                mask=ans[3]
-                k+=1
-                if mask==1:
-                    total[k]+=1
-                    k=0
-    t=0
-    totalLen=0
-    totalNum=0
-    for i in range(50):
-        for j in range(10):
-            print(f'num: {i*10+j} t: {total[i*10+j]}',end=' ')
-            totalLen+=total[i*10+j]*(i*10+j)
-            totalNum+=total[i*10+j]
-            t+=int(total[i*10+j])
-            if (i*10+j)%10==0:
-                totalT[(i*10+j)//10]=t
+    env2=DQNRNNEnv(os.path.join('/home/wu_tian_ci/eyedata/seperate/','20','1'))
 
-        print('')
-    totalT2=[0 for i in range(50)]
-    totalT2[0]=totalT[0]
-    for i in range(1,50):
-        totalT2[i]=totalT[i]-totalT[i-1]
-    print(totalT2)
-    print(totalLen,totalNum,totalLen/totalNum)
+    while True:
+        ans=env2.act()
+        if isinstance(ans,bool):
+            pass
+
+    # t=0
+    # total=[0 for i in range(500)]
+    # totalT=[0 for i in range(50)]
+    # for i in range(20,21):
+    #     if i<10:
+    #         envNum='0'+str(i)
+    #     else:
+    #         envNum=str(i)
+    #     env2=DQNRNNEnv(os.path.join('/home/wu_tian_ci/eyedata/seperate/',envNum,'1'))
+    #     env2.load_dict()
+    #     env2.get_file()
+    #     k=0
+    #     print(envNum)
+    #     while True:
+    #         ans=env2.act()
+    #         if isinstance(ans,bool):
+    #             if k!=0:
+    #                 total[k]+=1
+    #             break
+    #             # env.refresh()
+    #         else:
+    #             # print(ans)                
+    #             mask=ans[3]
+    #             k+=1
+    #             if mask==1:
+    #                 total[k]+=1
+    #                 k=0
+    # t=0
+    # totalLen=0
+    # totalNum=0
+    # for i in range(50):
+    #     for j in range(10):
+    #         print(f'num: {i*10+j} t: {total[i*10+j]}',end=' ')
+    #         totalLen+=total[i*10+j]*(i*10+j)
+    #         totalNum+=total[i*10+j]
+    #         t+=int(total[i*10+j])
+    #         if (i*10+j)%10==0:
+    #             totalT[(i*10+j)//10]=t
+
+    #     print('')
+    # totalT2=[0 for i in range(50)]
+    # totalT2[0]=totalT[0]
+    # for i in range(1,50):
+    #     totalT2[i]=totalT[i]-totalT[i-1]
+    # print(totalT2)
+    # print(totalLen,totalNum,totalLen/totalNum)
 
     
         
