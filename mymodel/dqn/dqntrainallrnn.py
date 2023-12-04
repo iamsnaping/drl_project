@@ -419,6 +419,7 @@ if __name__=='__main__':
     parser.add_argument('-layers',type=int,default=5)
     parser.add_argument('-embed',type=int,default=128)
     parser.add_argument('-rems',type=int,default=5)
+    parser.add_argument('-epochs',type=int,default=500)
 
     args=parser.parse_args()
     # device=torch.device('cpu')
@@ -468,5 +469,5 @@ if __name__=='__main__':
                 +' layers: '+str(args.layers)+" embded: "+str(args.embed)+' rems'+str(args.rems))
         if args.sup!='50':
             f.write('\n'+args.sup)
-    train_epoch(agent, args.lr, 500, 256,device,args.mode,store_path=store_path,multienvs=envs,\
+    train_epoch(agent, args.lr, args.epochs, 256,device,args.mode,store_path=store_path,multienvs=envs,\
                 json_path=json_path,value_path=value_path,critic_loss_path=critic_loss_path,remBlocskNum=args.rems)

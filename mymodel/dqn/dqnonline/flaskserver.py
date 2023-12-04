@@ -163,7 +163,6 @@ class PresentsRecorder(object):
 
 
 class TrainModel(object):
-
     def __init__(self) -> None:
 
         self.device=torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
@@ -178,8 +177,14 @@ class TrainModel(object):
 
         self.predictCnts=1
         self.onlineAcc=[]
+        self.onlineIPA2=[]
         self.onlineAveAcc=[]   
+        self.IPA2=[]
         self.onlineLen=[]
+        self.traAcc=[]
+        self.traLen=[]
+        self.traEndAcc=[]
+        self.traIPA2=[]
         # load path
         # store path
         # recorde the index of the sequence
@@ -203,9 +208,9 @@ class TrainModel(object):
         # for test people data
         self.trainBuffer=ReplayBufferRNN(2**17,self.device)
         self.batchSize=8
-        self.lr=0.0003
-        self.agent.load('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231122/trainall/231231/dqnnetoffline.pt')
-        self.predictModel.load('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231122/trainall/231231/dqnnetoffline.pt')
+        self.lr=0.0005
+        self.agent.load('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231130/trainall/164830/dqnnetoffline.pt')
+        self.predictModel.load('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231130/trainall/164830/dqnnetoffline.pt')
         self.baseStorePath='/home/wu_tian_ci/eyedatanew'
         self.dc=DataCreater()
         self.newFileNums=0
@@ -216,27 +221,34 @@ class TrainModel(object):
         global dataRecorder
         trainer = torch.optim.Adam(lr=self.lr, params=self.agent.online.parameters())
         EPOSILON=0.02
-        loss=nn.MSELoss()
+        loss=nn.HuberLoss()
         best_scores=-np.inf
         envs=[]
         t_reward=[]
         trajectorys=[]
         pr=PresentsRecorder(20)
         t_reward_len=-1
+        trainNums=[]
+        skipSize=5
         for i in range(2,22):
             if i<10:
                 envStr='0'+str(i)
             else:
                 envStr=str(i)
+            trainNums.append(i)
             envPath=os.path.join('/home/wu_tian_ci/eyedata/seperate/',envStr,'1')
             envs.append(DQNRNNEnv(envPath))
             trajectorys.append(DQNRNNTrajectory())
-        fileNum=len(os.listdir('/home/wu_tian_ci/eyedatanew/01/1'))
+        if os.path.exists('/home/wu_tian_ci/eyedatanew/01/1'):
+            fileNum=len(os.listdir('/home/wu_tian_ci/eyedatanew/01/1'))
+        else:
+            fileNum=0
         onlineNum=int(np.ceil(fileNum/5))
         for i in range(onlineNum):
             envs.append(DQNRNNEnv('/home/wu_tian_ci/eyedatanew/01/1'))
             trajectorys.append(DQNRNNTrajectory())
             pr.addRecorder()
+            trainNums.append(22)
             # trajectorys.append(DQNTrajectory())
         for i in range(len(envs)):
             envs[i].load_dict()
@@ -273,7 +285,7 @@ class TrainModel(object):
             endInNoAct=0
             endOutNoAct=0
             # 100
-            for steps in range(300):
+            for steps in range(200):
 
                 if self.stop:
                     with modelConditioner:
@@ -281,11 +293,14 @@ class TrainModel(object):
                         modelConditioner.wait()
                 if self.newFileNums%5==0:
                     updateTimes=int(np.ceil(self.newFileNums/5))
+                    skipNum+=1
+                    trainNums.append(22)
                     for i in range(updateTimes):
                         envs.append(DQNRNNEnv(self.baseStorePath))
                         envs[-1].load_dict()
                         envs[-1].get_file()
                         trajectorys.append(DQNRNNTrajectory())
+                    
                     self.newFileNums=0
 
                 # print('train2')
@@ -294,48 +309,46 @@ class TrainModel(object):
                 indexes=[]
                 lastPList=[]
                 lengthsList=[]
-                randomList=[]
+                personList=[]
                 # ans -> eye click goal isEnd
-                if len(envs)>20:
-                    for i in range(len(envs)-20):
-                        randomNum=random.randint(randomLow,randomHigh)
-                        randomList.append(randomNum)
+                skipNum=np.random.randint(low=0,high=20,size=skipSize)
                 for i in range(len(envs)):
+                    if i in skipNum:
+                        continue
                     ans=envs[i].act()
                     if isinstance(ans,bool):
                         envs[i].load_dict()
                         envs[i].get_file()
                         continue
                     else:
-                        # print(ans[0],len(ans[0]))
                         eye=torch.tensor(ans[0],dtype=torch.long)
                         click=torch.tensor(ans[1],dtype=torch.long).to(device)
                         lengths=torch.tensor(ans[4],dtype=torch.long)
                         if pr.flag[i]==False:
                             pr.init(i,ans[1])
                         lastP=torch.tensor(pr.getLastPresents(i),dtype=torch.long).to(device)
+                        person=torch.tensor([trainNums[i]],dtype=torch.float32).to(device)
                         lastPList.append(lastP)
                         eyeList.append(eye)
                         clickList.append(click)
                         lengthsList.append(lengths)
+                        personList.append(person)
                         # ans -> eye click goal isEnd
                         doneFlag=0
                         if ans[3]==1:
                             doneFlag=0
                         else:
                             doneFlag=1
-                        # print(ans[3])
-                        # click,eye,goal,action,mask
-                        trajectorys[i].push(click,eye,ans[2],0,doneFlag*UTIL.GAMMA,lastP,lengths)
+                        trajectorys[i].push(click,eye,ans[2],0,doneFlag*UTIL.GAMMA,lastP,lengths,person)
                         indexes.append(i)
-                # print(clickList)
                 clickCat=torch.stack(clickList,dim=0).to(device)
                 lastPCat=torch.stack(lastPList,dim=0).to(device)
                 lengthStack=torch.stack(lengthsList,dim=0)
+                personStack=torch.stack(personList,dim=0).to(device).unsqueeze(1)   
                 # for e in eyeList:
                 #     print(f'e {e} len {len(e)}')
                 eyeList=torch.stack(eyeList,dim=0).to(device)
-                actions=self.agent.act(clickCat,eyeList,lastPCat,lengthStack)
+                actions=self.agent.act(clickCat,eyeList,lastPCat,lengthStack,personStack)
                 # print(f' aaaaa {actions}')
                 for actS,index in zip(actions,indexes):
                     pr.add(index,actS)
@@ -397,8 +410,8 @@ class TrainModel(object):
                     trainBatchSize=int((1+(self.trainBuffer.getRatio()))*self.batchSize)
                 if trainBatchSize*2 > self.trainBuffer.capacity and self.batchSize<256:
                     self.batchSize*=2
-                clickList,eyeList,lastPList,lengths,actionList,rewardList,maskList,nclickList,neyeList,nlastPList,nlengths = self.dataSetBuffer.sample(datasetBatchSize)
-                clickListT,eyeListT,lastPListT,lengthsT,actionListT,rewardListT,maskListT,nclickListT,neyeListT,nlastPListT,nlengthsT = self.trainBuffer.sample(trainBatchSize)
+                clickList,eyeList,lastPList,lengths,person,actionList,rewardList,maskList,nclickList,neyeList,nlastPList,nlengths,nperson = self.dataSetBuffer.sample(datasetBatchSize)
+                clickListT,eyeListT,lastPListT,lengthsT,personT,actionListT,rewardListT,maskListT,nclickListT,neyeListT,nlastPListT,nlengthsT,npersonT = self.trainBuffer.sample(trainBatchSize)
                 clickList=torch.cat([clickList,clickListT],dim=0)
                 eyeList=torch.cat([eyeList,eyeListT],dim=0)
                 lastPList=torch.cat([lastPList,lastPListT],dim=0)
@@ -410,20 +423,23 @@ class TrainModel(object):
                 neyeList=torch.cat([neyeList,neyeListT],dim=0)
                 nlastPList=torch.cat([nlastPList,nlastPListT],dim=0)
                 nlengths=torch.cat([nlengths,nlengthsT],dim=0)
+                person=torch.cat([person,personT],dim=0)
+                nperson=torch.cat([nperson,npersonT],dim=0)
+                
                 
         
                 deltaP = torch.rand(self.remBlocskNum).to(device)
                 deltaP =deltaP/ deltaP.sum()
                 with torch.no_grad():
-                    onlineValues=self.agent.online(clickList,eyeList,lastPList,lengths)
+                    onlineValues=self.agent.online(clickList,eyeList,lastPList,lengths,person)
                     onlineValues=sum(onlineValues)/len(onlineValues)
                     yAction=torch.argmax(onlineValues,dim=-1,keepdim=True)
-                    targetValues=self.agent.target(nclickList,neyeList,nlastPList,nlengths)
+                    targetValues=self.agent.target(nclickList,neyeList,nlastPList,nlengths,nperson)
                     for i in range(self.remBlocskNum):
                         targetValues[i]=targetValues[i]*deltaP[i]
                     targetValues=sum(targetValues)
                     y=targetValues.gather(dim=-1,index=yAction)*maskList+rewardList
-                values=self.agent.online(clickList,eyeList,lastPList,lengths)
+                values=self.agent.online(clickList,eyeList,lastPList,lengths,person)
                 for i in range(self.remBlocskNum):
                     values[i]=values[i]*deltaP[i]
                 values=sum(values)
@@ -436,8 +452,8 @@ class TrainModel(object):
                     self.agent.update()
 
             t_reward_len+=1
-            if t_reward_len>=100:
-                t_reward_len%=100
+            if t_reward_len>=10:
+                t_reward_len%=10
                 t_reward[t_reward_len]=np.mean(rewards)
             else:
                 t_reward.append(np.mean(rewards))
@@ -480,25 +496,42 @@ class TrainModel(object):
                 ' len_tra_over_one: '+str(traLenOverOne)+' no_action_num:'+str(noActionNum)+' no_action_num_80:'+str(noActionNumWithThreshold)+\
                 ' acc:'+str(round(noActionNum/traLenOverOne,2))+' acc2:'+str(round(noActionNumWithThreshold/traLenOverOne,2))+'\n'+\
                 ' len_tra_over_three: '+str(traLenOverThree)+' total_errors: '+str(totalErrors)+' acc: '+str(round(totalErrors/traLenOverThree,2))+'\n')
+    
 
+    def getAveTraAcc(self):
+        aveAcc='tra_acc: '+str(round(np.sum(self.traAcc)/np.sum(self.traLen),2))+' tra_end_acc: '+str(round(np.mean(self.traEndAcc),2))+' IPA2: '+str(round(np.mean(self.traIPA2),2))
+        return aveAcc
+
+    def traAccClear(self):
+        self.traAcc=[]
+        self.traLen=[]
+        self.traEndAcc=[]
+        self.traIPA2=[]
 
     def writeReward(self):
         info=self.tras.getInfo2()
         # print(info)
         # len(self.tras),totalCorrect,endCorrect,totalReward,endReward
-        if len(self.onlineAveAcc)<100:
+        if len(self.onlineAveAcc)<1000:
             self.onlineAcc.append(info[2])
             self.onlineAveAcc.append(info[1])
             self.onlineLen.append(info[0])
+            self.onlineIPA2.append(info[5])
         else:
-            self.onlineAcc[self.predictCnts%100]=info[2]
-            self.onlineAveAcc[self.predictCnts%100]=info[1]
-            self.onlineLen[self.predictCnts%100]=info[0]
+            self.onlineAcc[self.predictCnts%1000]=info[2]
+            self.onlineAveAcc[self.predictCnts%1000]=info[1]
+            self.onlineLen[self.predictCnts%1000]=info[0]
+            self.onlineIPA2[self.predictCnts%1000]=info[5]
+        self.traAcc.append(info[1])
+        self.traEndAcc.append(info[2])
+        self.traLen.append(info[0])
+        self.traIPA2.append(info[5])
         with open(self.onlineReward,'a') as f:
             f.write('tras: '+str(self.predictCnts)+' tra_len: '+str(info[0])+' '+\
-                    'total_correct: '+str(info[1]) +' end_correct: '+str(info[2])+' ratio'+str(round(info[1]/info[0],2))+'\n'+\
-                    'total_reward: '+str(info[3])+' end_reward: '+str(info[4])+' ave_reward:'+str(round(info[4]/info[0],2))+'\n'+\
-                    'end_acc: '+str(round(float(np.sum(self.onlineAcc))/len(self.onlineAcc),2))+' ave_acc: '+str(round(float(np.sum(self.onlineAveAcc)/np.sum(self.onlineLen)),2))+'\n')
+                    'total_correct: '+str(info[1]) +' end_correct: '+str(info[2])+' ratio: '+str(round(info[1]/info[0],2))+'\n'+\
+                    'total_reward: '+str(info[3])+' end_reward: '+str(info[4])+' ave_reward: '+str(round(info[4]/info[0],2))+'\n'+\
+                    'total_end_acc: '+str(round(np.mean(self.onlineAcc),2))+' total_ave_acc: '+str(round(float(np.sum(self.onlineAveAcc)/np.sum(self.onlineLen)),2))+'\n'+\
+                    'ave_IPA2: '+str(round(np.mean(self.onlineIPA2),2)))
         self.predictCnts+=1
     
     '''
@@ -513,7 +546,7 @@ class TrainModel(object):
             f.write(writeTxt)
 
     def predict(self,*data):
-        clickList,eyeList,length,lastP,clickRegion,state=data
+        clickList,eyeList,length,lastP,clickRegion,state,person=data
         mask=UTIL.GAMMA
         if self.update:
             with modelConditioner:
@@ -525,10 +558,14 @@ class TrainModel(object):
         eyeTensor=torch.tensor([eyeList],dtype=torch.long).unsqueeze(0).to(self.device)
         lenTensor=torch.tensor([length],dtype=torch.long)
         pTensor=torch.tensor([lastP],dtype=torch.long).unsqueeze(0).to(self.device)
-        ans=int(self.predictModel.act(clickTensor,eyeTensor,pTensor,lenTensor))
+        personTensor=torch.tensor([[[person]]],dtype=torch.float32).to(self.device)
+        ans=int(self.predictModel.act(clickTensor,eyeTensor,pTensor,lenTensor,personTensor))
         # click,eye,goal,action,mask
         print(f'predict {int(ans)}')
         mask=UTIL.GAMMA
+        if state==0:
+            mask=0
+        self.tras.push(clickTensor.squeeze(),eyeTensor.squeeze(),0,ans,mask,pTensor.squeeze(),lenTensor.squeeze(),personTensor.squeeze(0).squeeze(0))
         if state==0:
             print(f'add')
             self.tras.setGoal(clickRegion)
@@ -542,7 +579,6 @@ class TrainModel(object):
             self.tras.clear()
             self.dc.refreshTra()
             mask=0
-        self.tras.push(clickTensor.squeeze(),eyeTensor.squeeze(),0,ans,mask,pTensor.squeeze(),lenTensor.squeeze())
         return ans,'success'
 
 model=TrainModel()
@@ -639,6 +675,10 @@ def excuteOrder():
         responseDict['data']=True
         responseDict['flag']=0
         responseDict['message']='success'
+        model.dc.refresh()
+        writeTxt=model.getAveTraAcc()
+        model.writeTxt(writeTxt)
+        model.traAccClear()
         model.writeTxt('\nend\n\n')
     responseJson=json.dumps(responseDict)
     response=make_response(responseJson)
@@ -652,7 +692,7 @@ def getPredict():
     global model,STOP_TRAIN_FLAG
     resp=request.get_json()
     responseDict=getResponse()
-    clickRegion,eyeRegion,mouseS=resp.get('clickRegion'),resp.get('eyeRegion'),resp.get('mouseS')
+    clickRegion,eyeRegion,mouseS,person=resp.get('clickRegion'),resp.get('eyeRegion'),resp.get('mouseS'),resp.get('person')
     eyeAns=model.dc.addEye(eyeRegion)
     clickAns=model.dc.addClick(clickRegion)
     if clickAns[0]==False:
@@ -662,7 +702,7 @@ def getPredict():
     else:
         # clickList,eyeList,length,lastP,clickRegion,statefg
         lastP=model.dc.getP()
-        ans=model.predict(clickAns[1],eyeAns[0],eyeAns[1],lastP,clickRegion,mouseS)
+        ans=model.predict(clickAns[1],eyeAns[0],eyeAns[1],lastP,clickRegion,mouseS,person)
         responseDict['data']=ans[1]
         responseDict['flag']=True
         responseDict['message']=ans[0]

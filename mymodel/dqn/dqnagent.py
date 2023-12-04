@@ -117,5 +117,13 @@ class REMAgent(object):
         maxAction=torch.argmax(actions,dim=-1)
         action=maxAction.squeeze().cpu().detach().numpy()
         return action
+    
+    def eval(self):
+        self.target.eval()
+        self.online.eval()
+    
+    def train(self):
+        self.target.train()
+        self.online.train()
 
  

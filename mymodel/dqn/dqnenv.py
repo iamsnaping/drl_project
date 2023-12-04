@@ -390,6 +390,7 @@ class DQNRNNEnv:
         self.clickRegion=Region('click')
         self.eyeRegion.setRegions(UTIL.EYEAREAS)
         self.clickRegion.setRegions(UTIL.CLICKAREAS)
+        self.eval=False
 
     def regular(self,paths):
         for p in paths:
@@ -405,6 +406,11 @@ class DQNRNNEnv:
             random.shuffle(self.files_path)
         if self.isRegular:
             self.regular()
+        elif self.eval==True:
+            dirs=os.listdir(self.base_path)
+            for dir in dirs:
+                self.files_path.append(os.path.join(self.base_path,dir))
+            self.files_path=self.files_path[self.topN:-1]
         else:
             dirs=os.listdir(self.base_path)
             for dir in dirs:

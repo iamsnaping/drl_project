@@ -838,6 +838,7 @@ class DQNRNNTrajectory(object):
 
     def getInfo2(self):
         present=self.tras[-1][0][-1]
+        IPA2=0
         totalCorrect=0
         endCorrect=0
         totalReward=0
@@ -847,6 +848,8 @@ class DQNRNNTrajectory(object):
             if action!=12:
                 present=action
             if present==goal:
+                if IPA2==0:
+                    IPA2=1
                 totalCorrect+=1
                 if int(mask+0.5)==0:
                     endCorrect+=1
@@ -854,7 +857,7 @@ class DQNRNNTrajectory(object):
             if int(mask+0.5)==0:
                 endReward=reward
         
-        return len(self.tras),totalCorrect,endCorrect,totalReward,endReward
+        return len(self.tras),totalCorrect,endCorrect,totalReward,endReward,IPA2
             
 
 

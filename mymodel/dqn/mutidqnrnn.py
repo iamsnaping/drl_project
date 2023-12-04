@@ -108,7 +108,10 @@ class NumRecorder(object):
     def clear(self):
         self.recoder=[0 for i in range(self.nums)]
         
-def train_epoch(agent:Agent, lr, epochs, batch_size,device,mode,multienvs,testEnvs,remBlocskNum=5,store_path=None,json_path=None,value_path=None,critic_loss_path=None):
+def train_epoch(agent:REMAgent, lr,
+                 epochs, batch_size,device,mode,multienvs,testEnvs,
+                 topN=5,remBlocskNum=5,randLow=2,randHigh=17,randSize=5,skipFlag=False,
+                 store_path=None,json_path=None,value_path=None,critic_loss_path=None):
     # random.seed(None)
     # np.random.seed(None)
     agent.online.to(device)
@@ -170,13 +173,27 @@ def train_epoch(agent:Agent, lr, epochs, batch_size,device,mode,multienvs,testEn
     # e.shuffle=False
     # envs.append(e)
     # trajectorys.append(DQNRNNTrajectory())
-    for i in range(len(envs)):
-        envs[i].load_dict()
-        envs[i].get_file()
+
     for env in testEnvs:
         testEnvPath=os.path.join('/home/wu_tian_ci/eyedata/seperate/',env,'1')
         testenvs.append(DQNRNNEnv(testEnvPath))
         testNum.append(float(env))
+        testenvs[-1].shuffle=False
+        testenvs[-1].topN=topN
+        testenvs[-1].eval=True
+        envPath=os.path.join('/home/wu_tian_ci/eyedata/seperate/',env,'1')
+        envs.append(DQNRNNEnv(envPath))
+        envFlags.append(False)
+        envPaths.append(envPath)
+        trajectorys.append(DQNRNNTrajectory())
+        trainNum.append(float(env))
+        envs[-1].shuffle=False
+        envs[-1].topN=3
+
+
+    for i in range(len(envs)):
+        envs[i].load_dict()
+        envs[i].get_file()
 
     beginFlags=[True for i in range(len(envs))]
 
@@ -212,6 +229,7 @@ def train_epoch(agent:Agent, lr, epochs, batch_size,device,mode,multienvs,testEn
         endOutNoAct=0
         processReward=[]
         # 100
+        agent.train()
         for steps in range(500):
             eyeList=[]
             clickList=[]
@@ -220,7 +238,11 @@ def train_epoch(agent:Agent, lr, epochs, batch_size,device,mode,multienvs,testEn
             lengthsList=[]
             personList=[]
             # ans -> eye click goal isEnd length
+            skipNum=np.random.randint(low=randLow,high=randHigh,size=randSize)
             for i in range(len(envs)):
+                if skipFlag:
+                    if i in skipNum:
+                        continue
                 ans=envs[i].act()
                 if isinstance(ans,bool):
                     envs[i].load_dict()
@@ -376,6 +398,7 @@ def train_epoch(agent:Agent, lr, epochs, batch_size,device,mode,multienvs,testEn
         testInOutListNoAction=[[0,0] for i in range(surviveFlags)]
         testInOuEndtList=[[0,0] for i in range(surviveFlags)]
         testInOutEndListNoAction=[[0,0] for i in range(surviveFlags)]
+        agent.eval()
         with torch.no_grad():
             while surviveFlags>0:
                 testEyeList=[]
@@ -478,13 +501,22 @@ def train_epoch(agent:Agent, lr, epochs, batch_size,device,mode,multienvs,testEn
         inOutListNoAction=[]
         endInOutListNoAction=[]
         for i in range(len(testEnvs)):
-            inOutList.append(testInOutList[i][0]/(testInOutList[i][0]+testInOutList[i][1]))
-            inOutListNoAction.append(testInOutListNoAction[i][0]/(testInOutListNoAction[i][0]+testInOutListNoAction[i][1]))
-            endInOutList.append(testInOuEndtList[i][0]/(testInOuEndtList[i][0]+testInOuEndtList[i][1]))
+            try:
+                inOutList.append(testInOutList[i][0]/(testInOutList[i][0]+testInOutList[i][1]))
+            except:
+                inOutList.append(0)
+            try:
+                inOutListNoAction.append(testInOutListNoAction[i][0]/(testInOutListNoAction[i][0]+testInOutListNoAction[i][1]))
+            except:
+                inOutListNoAction.append(0)
+            try:
+                endInOutList.append(testInOuEndtList[i][0]/(testInOuEndtList[i][0]+testInOuEndtList[i][1]))
+            except:
+                endInOutList.append(0)
             try:
                 endInOutListNoAction.append(testInOutEndListNoAction[i][0]/(testInOutEndListNoAction[i][0]+testInOutEndListNoAction[i][1]))
             except:
-                print('error')
+                # print('error')
                 endInOutListNoAction.append(0)
         inOutMean=np.mean(inOutList)
         endInOutMean=np.mean(endInOutList)
@@ -590,6 +622,11 @@ if __name__=='__main__':
     parser.add_argument('-layers',type=int,default=5)
     parser.add_argument('-embed',type=int,default=128)
     parser.add_argument('-rems',type=int,default=5)
+    parser.add_argument('-topN',type=int,default=5)
+    parser.add_argument('-skip',type=bool,default=False)
+    parser.add_argument('-low',type=int,default=2)
+    parser.add_argument('-high',type=int,default=15)
+    parser.add_argument('-skipN',type=int,default=10)
 
     args=parser.parse_args()
     device = torch.device(args.cuda if torch.cuda.is_available() else 'cpu')
@@ -597,8 +634,9 @@ if __name__=='__main__':
     store=UTIL.getTimeStamp()
 
     if args.preload:
-        actor_load=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain/',args.modelPath)
-        actor_load=os.path.join(actor_load,'200pretrain.pt')
+        # actor_load=os.path.join(,args.modelPath)
+        # actor_load=os.path.join(actor_load,'dqnnetoffline.pt')
+        actor_load='/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231126/trainall/165620/dqnnetoffline.pt'
         agent.load(actor_load)
     # else:
     #     actor_load='/home/wu_tian_ci/drl_project/mymodel/ddpg/pretrain_data/ddpg_train/1last_move5/ActorNet.pt'
@@ -647,8 +685,11 @@ if __name__=='__main__':
     if not os.path.exists(store_path):
         os.makedirs(store_path)
     with open(os.path.join(store_path,'envsinfo.txt'),'w') as f:
-        f.write('envs'+str(envs)+'\n trainEnvs:'+str(trainEnvs)+'\n testEnvs:'+str(testEnvs)+'\n'+' lr:'+str(args.lr)+' preload: '+str(args.preload))
+        f.write('envs'+str(envs)+'\n trainEnvs:'+str(trainEnvs)+'\n testEnvs:'+str(testEnvs)+'\n'+' lr:'+str(args.lr)+' preload: '+str(args.preload)\
+                +' topN:'+str(args.topN)+' skip:'+str(args.skip)+' skip_info:' +str(args.low)+' '+str(args.high)+' '+str(args.skipN)+'\n'\
+                +'layers: '+str(args.layers))
         if args.sup!='50':
             f.write('\n'+args.sup)
     train_epoch(agent, args.lr, 500, 256,device,args.mode,store_path=store_path,multienvs=trainEnvs,testEnvs=testEnvs,\
-                json_path=json_path,value_path=value_path,critic_loss_path=critic_loss_path,remBlocskNum=args.rems)
+                json_path=json_path,value_path=value_path,critic_loss_path=critic_loss_path,remBlocskNum=args.rems,topN=args.topN,\
+                randLow=args.low,randHigh=args.high,randSize=args.skipN,skipFlag=args.skip)
