@@ -447,7 +447,10 @@ if __name__=='__main__':
     print(args.sup)
     print(store[-6:])
     envs=[]
+    exclude=[7,12,13]
     for i in range(2,22):
+        if i in exclude:
+            continue
         if i<10:
             envs.append('0'+str(i))
         else:
@@ -466,7 +469,7 @@ if __name__=='__main__':
         os.makedirs(store_path)
     with open(os.path.join(store_path,'envsinfo.txt'),'w') as f:
         f.write('envs'+str(envs)+'\n trainEnvs:'+str(envs)+'\n'+' lr:'+str(args.lr)+' preload: '+str(args.preload)+' device:'+str(device)\
-                +' layers: '+str(args.layers)+" embded: "+str(args.embed)+' rems'+str(args.rems))
+                +' layers: '+str(args.layers)+" embded: "+str(args.embed)+' rems'+str(args.rems)+'\nexclude: '+str(exclude))
         if args.sup!='50':
             f.write('\n'+args.sup)
     train_epoch(agent, args.lr, args.epochs, 256,device,args.mode,store_path=store_path,multienvs=envs,\

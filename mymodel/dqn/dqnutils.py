@@ -30,51 +30,6 @@ class DQNReward(object):
             self.prediction[1]=self.prediction[2]
             self.prediction[2]=predict
 
-    # def getReward(self,predict,goal,mask,present,ratio):
-    #     baseScroes=1
-    #     #no action
-    #     errorsFlag=False
-    #     if predict==12:
-    #         if len(self.prediction)==0:
-    #             self.prediction.append(predict)
-    #         else:
-    #             self.prediction.append(self.prediction[-1])
-    #     else:
-    #         self.prediction.append(predict)
-    #     if not self.judgeError():
-    #         self.errors+=1
-    #         errorsFlag=True
-    #     if int(mask+0.5)==0:
-    #         self.prediction=[]
-    #         self.lastErrors=self.errors
-    #         self.errors=0
-    #     if predict==12:
-    #         if ratio>=0.8:
-    #             if int(mask+0.5)==0:
-    #                 if present==goal:
-    #                     return 15
-    #                 else:
-    #                     return -15
-    #             return 1
-    #         else:
-    #             return 2
-    #     if int(mask+0.5)==0:
-    #         baseScroes=15
-    #         if predict!=goal:
-    #             baseScroes*=(-1)
-    #     else:
-    #         if predict==goal:
-    #             if ratio>=0.8:
-    #                 baseScroes=2
-    #             else:
-    #                 baseScroes=1
-    #         else:
-    #             baseScroes=-3
-    #             if errorsFlag:
-    #                 baseScroes=-5
-    #     return baseScroes
-    
-
     # right -> normal 3 -> error -3  end: right->15 error->-15
     # noaction ->right -> normal ->3 end ->15 error-> normal-> -1 end-> -15
     # 20 pace 
@@ -95,35 +50,6 @@ class DQNReward(object):
                 return -1
             return -3
 
-        # print(f'get reward {present} {goal}')
-        # if predict!=12:
-        #     present=predict
-        # self.prediction.append(present)
-        # errorFlag=False
-        # if not self.judgeError():
-        #     self.errors+=1
-        #     errorFlag=True
-        # if int(mask+0.5)!=0:
-        #     if present!=goal:
-        #         if errorFlag:
-        #             return -5
-        #         if predict==12:
-        #             return 1
-        #         else:
-        #             return -3
-        #     else:
-        #         if predict==12:
-        #             return 1
-        #         return 3
-        # else:
-        #     self.lastErrors=self.errors
-        #     self.errors=0
-        #     if present==goal:
-        #         return 20
-        #     else:
-        #         return -20
-        # return baseScroes
-    
 # true -> False
     def judgeError(self):
         flag=True
@@ -133,335 +59,6 @@ class DQNReward(object):
             self.errors+=1
         return flag
     
-class ReplayBuffer(object):
-    #click->3 eye->3 aciton->1 nclick->3 eye->3 mask->1 reward->1 seq->3 nseq->3
-    #click->3 eye->3 goal->1 action->1 seq->3 mask->1 reward->1 nclick->3 neye->3 nseq->3
-    def __init__(self,maxLen,device) -> None:
-        self.capacity=maxLen
-        self.click=np.empty((maxLen,3),dtype=np.int64)
-        self.eye=np.empty((maxLen,3),dtype=np.int64)
-        self.nclick=np.empty((maxLen,3),dtype=np.int64)
-        self.neye=np.empty((maxLen,3),dtype=np.int64)
-        self.mask=np.empty((maxLen,1),dtype=np.float32)
-        self.reward=np.empty((maxLen,1),dtype=np.float32)
-        self.seq=np.empty((maxLen,3),dtype=np.int64)
-        self.nseq=np.empty((maxLen,3),dtype=np.int64)
-        self.action=np.empty((maxLen,1),dtype=np.int64)
-        self.cursor=0
-        self.holding=0
-        self.isFull=False
-        self.device=device
-        self.ratio=0.
-
-
-    def getRatio(self):
-        self.ratio=self.holding/self.capacity
-        return self.ratio
-    
-
-
-    def push(self,memoTuple:tuple):
-        click,eye,action,seq,mask,reward,nclick,neye,nseq=memoTuple
-        click=np.stack(click)
-        eye=np.stack(eye)
-        seq=np.stack(seq)
-        nclick=np.stack(nclick)
-        neye=np.stack(neye)
-        nseq=np.stack(nseq)
-        mask=np.array(mask).reshape(-1,1)
-        reward=np.array(reward).reshape(-1,1)
-        action=np.array(action).reshape(-1,1)
-        batchLen=len(action)
-        cursor=self.cursor+batchLen
-        if cursor>self.capacity:
-            if not self.isFull:
-                self.isFull=True
-                self.holding=self.capacity
-            c1=cursor-self.capacity
-            c2=batchLen-c1
-            self.click[self.cursor:,:]=click[0:c2,:]
-            self.eye[self.cursor:,:]=eye[0:c2,:]
-            self.nclick[self.cursor:,:]=nclick[0:c2,:]
-            self.neye[self.cursor:,:]=neye[0:c2,:]
-            self.mask[self.cursor:,:]=mask[0:c2,:]
-            self.reward[self.cursor:,:]=reward[0:c2,:]
-            self.seq[self.cursor:,:]=seq[0:c2,:]
-            self.nseq[self.cursor:,:]=nseq[0:c2,:]
-            self.action[self.cursor:,:]=action[0:c2,:]
-
-            self.click[0:c1,:]=click[c2:,:]
-            self.eye[0:c1,:]=eye[c2:,:]
-            self.nclick[0:c1,:]=nclick[c2:,:]
-            self.neye[0:c1,:]=neye[c2:,:]
-            self.mask[0:c1,:]=mask[c2:,:]
-            self.reward[0:c1,:]=reward[c2:,:]
-            self.seq[0:c1,:]=seq[c2:,:]
-            self.nseq[0:c1,:]=nseq[c2:,:]
-            self.action[0:c1,:]=action[c2:,:]
-
-            self.cursor=c2
-        else:
-            if cursor==self.capacity:
-                if not self.isFull:
-                    self.isFull=True
-                    self.holding=self.capacity
-            
-            self.click[self.cursor:cursor,:]=click
-            self.eye[self.cursor:cursor,:]=eye
-            self.nclick[self.cursor:cursor,:]=nclick
-            self.neye[self.cursor:cursor,:]=neye
-            self.mask[self.cursor:cursor,:]=mask
-            self.reward[self.cursor:cursor,:]=reward
-            self.seq[self.cursor:cursor,:]=seq
-            self.nseq[self.cursor:cursor,:]=nseq
-            self.action[self.cursor:cursor,:]=action
-            self.cursor+=batchLen
-            self.cursor%=self.capacity
-            
-        
-        if not self.isFull:
-            self.holding=self.cursor
-        self.isFull=True if self.holding>=self.capacity else False
-    
-
-    # def pushOne(self,memoTuple:tuple):
-    #     click,eye,action,seq,mask,reward,nclick,neye,nseq=memoTuple
-    #     self.click[self.cursor]=click
-    #     self.eye[self.cursor]=eye
-    #     self.action[self.cursor]=action
-    #     self.seq[self.cursor]=seq
-    #     self.mask
-
-    def sample(self,batchSize):
-        #click->3 eye->3 goal->1 action->1 seq->3 mask->1 reward->1 nclick->3 neye->3 nseq->3
-        indexs=np.random.randint(0,self.holding,batchSize)
-        click=torch.as_tensor(self.click[indexs],device=self.device,dtype=torch.long).unsqueeze(1)
-        eye=torch.as_tensor(self.eye[indexs],device=self.device,dtype=torch.long).unsqueeze(1)
-        action=torch.as_tensor(self.action[indexs],device=self.device,dtype=torch.long).unsqueeze(1)
-        seq=torch.as_tensor(self.seq[indexs],device=self.device,dtype=torch.float32).unsqueeze(1).permute(0,2,1)
-        mask=torch.as_tensor(self.mask[indexs],device=self.device,dtype=torch.float32).unsqueeze(1)
-        reward=torch.as_tensor(self.reward[indexs],device=self.device,dtype=torch.float32).unsqueeze(1)
-        nextClick=torch.as_tensor(self.nclick[indexs],device=self.device,dtype=torch.long).unsqueeze(1)
-        nextEye=torch.as_tensor(self.neye[indexs],device=self.device,dtype=torch.long).unsqueeze(1)
-        nseq=torch.as_tensor(self.nseq[indexs],device=self.device,dtype=torch.float32).unsqueeze(1).permute(0,2,1)
-        return click,eye,action,nextClick,nextEye,mask,reward,seq,nseq
-
-class DQNTrajectory(object):
-    def __init__(self) -> None:
-        self.tras=[]
-        self.newTras=[]
-        self.rewardFun=DQNReward()
-        self.aveLen=[]
-        # self.distribution=[0 for i in range(250)]
-        self.counting=0
-        self.noActionNum=0
-        self.noActionNumWithThreshold=0.
-        self.corrects=[]
-        self.noAction=[]
-        self.action=[]
-        self.noActionCorrect=[]
-
-    # TD(N) N->(0)
-    def getComTraZero(self):
-        self.counting+=1
-        traLen=len(self.newTras)
-        zTra=[]
-        eyeList,clickList,actionList,seqList,maskList,rewardList,nclickList,neyeList,nseqList=[],[],[],[],[],[],[],[],[]
-
-        for i in range(traLen-1):
-            click,eye,goal,action,mask,reward,seq=self.newTras[i]
-            # print(click,eye,goal,action,mask,reward)
-            nclick,neye,ngoal,naction,nmask,nreward,nseq=self.newTras[i+1]
-            zTra.append([click,eye,goal,action,seq,mask,reward,nclick,neye,nseq])
-            clickList.append(click)
-            eyeList.append(eye)
-            actionList.append(action)
-            seqList.append(seq)
-            maskList.append(mask)
-            rewardList.append(reward)
-            nclickList.append(nclick)
-            neyeList.append(neye)
-            nseqList.append(nseq)
-        click,eye,goal,action,mask,reward,seq=self.newTras[-1]
-        if mask==0:
-            zTra.append([click,eye,goal,action,seq,0,reward,[0 for i in range(len(click))],[0 for i in range(len(eye))],[0 for i in range(len(seq))]])
-            clickList.append(click)
-            eyeList.append(eye)
-            actionList.append(action)
-            seqList.append(seq)
-            maskList.append(0)
-            rewardList.append(reward)
-            nclickList.append([0 for i in range(len(click))])
-            neyeList.append([0 for i in range(len(click))])
-            nseqList.append([0 for i in range(len(seq))])
-        return zTra,(clickList,eyeList,actionList,seqList,maskList,rewardList,nclickList,neyeList,nseqList)
-
-    # n-> n+1 steps
-    def getComTraN(self,N=2):
-        traLen=len(self.newTras)
-        self.counting+=1
-        # print(f"new tras {self.newTras} zero {self.newTras[0]}")
-        lastClick=[0 for i in range(len(self.newTras[0][0]))]
-        lastEye=[0 for  i in range(len(self.newTras[0][1]))]
-        lastSeq=[0 for i in range(len(self.newTras[0][-1]))]
-        NTras=[]
-        #seq should be 3
-        for i in range(traLen,-1,-1):
-            if i<=N:
-                break
-            if i==traLen:
-                clickL,eyeL,seqL=lastClick,lastEye,lastSeq
-            else:
-                clickL,eyeL,goalL,actionL,maskL,rewardL,seqL=self.newTras[i]
-            maskAcu=1.
-            rewardAcu=0.
-            for j in range(1,N+2):
-                click,eye,goal,action,mask,reward,seq=self.newTras[i-j]
-                rewardAcu=rewardAcu*mask+reward
-                maskAcu*=mask
-            NTras.append([click,eye,goal,action,seq,maskAcu,rewardAcu,clickL,eyeL,seqL])
-        return NTras
-            
-
-    def getNewTras(self):
-        traLen=len(self.tras)
-        self.aveLen.append(traLen)
-        # self.distribution[traLen]+=1
-        present=self.tras[0][0][-1]
-        presents=[]
-        for i in range(traLen):
-            click,eye,goal,action,mask,seq=self.tras[i]
-            if action==12:
-                presents.append(present)
-            else:
-                present=action
-                presents.append(present)
-        for i in range(traLen-1,-1,-1):
-            click,eye,goal,action,mask,seq=self.tras[i]
-            
-            reward=self.rewardFun.getReward(action,goal,mask,presents[i],(i+1)/traLen)
-            if traLen>1:
-                if action==12:
-                    if (i+1)/traLen<0.8:
-                        self.noActionNumWithThreshold+=1
-                    self.noActionNum+=1
-
-            self.newTras.append([click,eye,goal,action,mask,reward,seq])
-    
-    def push(self,*data):
-        click,eye,goal,action,mask=dp(data)
-        traNum=len(self.tras)
-        numSeq=[traNum for i in range(len(eye))]
-        self.tras.append([click,eye,goal,action,mask,numSeq])
-    
-
-    def setGoal(self,goal):
-        for tra in self.tras:
-            tra[2]=goal
-    
-    # after get new tras
-    '''
-    no action ratio before 80% with length beyond 80% length beyond 1
-    errors ratio in the len beyond 3
-    in,out elimilated no actions
-    rewards ,endrewards
-    '''
-    def getInfo(self):
-        _in,_out,inOut=0.,0.,0.
-        inNoAct,outNoAct=0.,0.
-        rewards,endRewards=0.,0.
-        present=self.newTras[0][0][-1]
-        lastWithNoAction=0
-        endInOutNoAction=-1
-        for tra in self.newTras:
-            click,eye,goal,action,mask,reward,seq=tra
-            rewards+=reward
-            if action==12:
-                self.noAction.append(1)
-            else:
-                self.noAction.append(0)
-            if action!=12:
-                if action==goal:
-                    self.noActionCorrect.append(1)
-                    inNoAct+=1
-                else:
-                    outNoAct+=1
-                    self.noActionCorrect.append(0)
-            else:
-                self.noActionCorrect.append(-1)
-            # if action==12 and 
-            if int(0.5+mask)==0:
-                if action==12:
-                    lastWithNoAction+=1# error name
-                endRewards+=reward
-            if action!=12:
-                present=action
-            if present==goal:
-                _in+=1
-                self.corrects.append(1)
-                if int(0.5+mask)==0:
-                    inOut=1
-                    if action!=12:
-                        endInOutNoAction=1
-            else:
-                self.corrects.append(0)
-                _out+=1
-                if int(0.5+mask)==0 and action!=12:
-                    endInOutNoAction=0
-        '''
-        no action ratio before 80% with length beyond 80% length beyond 1
-        errors ratio in the len beyond 3
-        in,out elimilated no actions
-        rewards ,endrewards
-        '''
-        traLen=len(self.newTras)
-        return traLen,self.noActionNum,self.noActionNumWithThreshold,lastWithNoAction,\
-            _in,_out,inOut,reward,endRewards,inNoAct,outNoAct,self.rewardFun.lastErrors,endInOutNoAction
-
-    def getInfo2(self):
-        present=self.tras[-1][0][-1]
-        totalCorrect=0
-        endCorrect=0
-        totalReward=0
-        endReward=0
-        for tra in self.newTras:
-            click,eye,goal,action,mask,reward,seq=tra
-            if action!=12:
-                present=action
-            if present==goal:
-                totalCorrect+=1
-                if int(mask+0.5)==0:
-                    endCorrect+=1
-            totalReward+=reward
-            if int(mask+0.5)==0:
-                endReward=reward
-        
-        return len(self.tras),totalCorrect,endCorrect,totalReward,endReward
-            
-
-
-    def getCorrects(self):
-        return self.corrects
-
-    def clear(self):
-        self.tras=[]
-        self.newTras=[]
-        self.noActionNum=0.
-        self.noActionNumWithThreshold=0.
-        self.corrects=[]
-        self.noAction=[]
-        self.action=[]
-        self.noActionCorrect=[]
-    
-    
-    # def __del__(self):
-    #     print(f'ave len: {np.mean(self.aveLen)} max len: {np.max(self.aveLen)} min len: {np.min(self.aveLen)} total: {np.sum(self.distribution)} counting: {self.counting}')
-    #     print('distribution:')
-    #     for i in range(25):
-    #         for j in range(10):
-    #             print(f'nums {i*10+j} {self.distribution[i*10+j]}',end=' ')
-    #         print('')
-
 class ReplayBufferRNN(object):
     #click->3 eye->3 aciton->1 nclick->3 eye->3 mask->1 reward->1 seq->3 nseq->3
     #click->3 eye->3 goal->1 action->1 seq->3 mask->1 reward->1 nclick->3 neye->3 nseq->3
@@ -598,14 +195,6 @@ class ReplayBufferRNN(object):
 
 class DQNRNNTrajectory(object):
     def __init__(self) -> None:
-        # self.tras=[]
-        # self.newTras=[]
-        # self.rewardFun=DQNReward()
-        # self.aveLen=[]
-        # # self.distribution=[0 for i in range(250)]
-        # self.counting=0
-        # self.noActionNum=0
-        # self.noActionNumWithThreshold=0.
 
 
 
@@ -752,10 +341,10 @@ class DQNRNNTrajectory(object):
         self.rewardFun.errors=0
         self.rewardFun.prediction=[]
         # print(f'presnts0 {presents}')
-        for i in range(traLen-1,-1,-1):
+        for i in range(traLen):
+            # predict,goal,mask,present,judgeFlag
             click,eye,goal,action,mask,lastP,length,person=self.tras[i]
-            # print(f'presents {presents }')
-            # print(f'3 {self.rewardFun.prediction} {mask} {i} {traLen} {self.tras}')
+
             reward=self.rewardFun.getReward(action,goal,mask,presents[i],errorFlags[i])
             if traLen>1:
                 if action==12:
@@ -837,7 +426,7 @@ class DQNRNNTrajectory(object):
             _in,_out,inOut,reward,endRewards,inNoAct,outNoAct,self.rewardFun.lastErrors,endInOutNoAction
 
     def getInfo2(self):
-        present=self.tras[-1][0][-1]
+        present=self.tras[0][0][-1].cpu().detach().numpy()
         IPA2=0
         totalCorrect=0
         endCorrect=0
@@ -856,6 +445,7 @@ class DQNRNNTrajectory(object):
             totalReward+=reward
             if int(mask+0.5)==0:
                 endReward=reward
+        # print(self.tras,self.newTras)
         
         return len(self.tras),totalCorrect,endCorrect,totalReward,endReward,IPA2
             

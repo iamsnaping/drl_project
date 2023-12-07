@@ -217,12 +217,9 @@ class REMNet(nn.Module):
         actions1=actionPad[[i for i in range(lengths.shape[0])],lengths-1,:].unsqueeze(1)
         hn=torch.permute(hn,(1,0,2))
         hnM=hn.reshape((lengths.shape[0],1,-1))
-        # hnM=self.hnMLP(hnM)
         actions1=torch.cat([actions1,newClickEncode,hnM],dim=-1)
         personPosition=self.personMLP(person)
         actions1+=personPosition
-        # n=self.encoder(actions1,actions1)
-        # return self.value_fun(n)+self.adv_fun(n)
         ansList=[]
         for layer in self.remBlocks:
             ansList.append(layer(actions1))
