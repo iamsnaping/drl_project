@@ -168,10 +168,10 @@ class TrainModel(object):
 
         self.device=torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
         # train 
-        self.agent=REMAgent(device=self.device,rnn_layer=5,embed_n=128)
+        self.agent=REMAgent2(device=self.device,rnn_layer=5,embed_n=128)
 
         #predict
-        self.predictModel=REMAgent(device=self.device,rnn_layer=5,embed_n=128)
+        self.predictModel=REMAgent2(device=self.device,rnn_layer=5,embed_n=128)
 
         # 
         self.isTraining=False
@@ -202,12 +202,12 @@ class TrainModel(object):
 
         # self.dataCreater=DataCreater()
         self.stop=False
-        self.tras=DQNRNNTrajectory()
+        self.tras=DQNRNNTrajectory2()
 
         # for dataset
-        self.dataSetBuffer=ReplayBufferRNN(2**19,self.device)
+        self.dataSetBuffer=ReplayBufferRNN2(2**19,self.device)
         # for test people data
-        self.trainBuffer=ReplayBufferRNN(2**17,self.device)
+        self.trainBuffer=ReplayBufferRNN2(2**17,self.device)
         self.batchSize=8
         self.lr=OnlineConfig.LR.value
         self.agent.load(OnlineConfig.LOAD_PATH.value)
@@ -230,18 +230,22 @@ class TrainModel(object):
         pr=PresentsRecorder(20)
         t_reward_len=-1
         trainNums=[]
+        trainScene=[]
         skipSize=5
-        for i in range(2,22):
-            if i in OnlineConfig.SKIP_LIST.value:
-                continue
-            if i<10:
-                envStr='0'+str(i)
-            else:
-                envStr=str(i)
-            trainNums.append(i)
-            envPath=os.path.join(OnlineConfig.DATASET_PATH.value,envStr,OnlineConfig.SCENE.value)
-            envs.append(DQNRNNEnv(envPath))
-            trajectorys.append(DQNRNNTrajectory())
+        for scene in range(1,5):
+            for i in range(2,22):
+                if i in OnlineConfig.SKIP_LIST.value:
+                    continue
+                if i<10:
+                    envStr='0'+str(i)
+                else:
+                    envStr=str(i)
+                trainNums.append(i)
+                # envPath=os.path.join(OnlineConfig.DATASET_PATH.value,envStr,OnlineConfig.SCENE.value)
+                envPath=os.path.join(OnlineConfig.DATASET_PATH.value,envStr,str(scene))
+                envs.append(DQNRNNEnv(envPath))
+                trajectorys.append(DQNRNNTrajectory2())
+                trainScene.append(scene)
         if os.path.exists(OnlineConfig.INDIVIDUAL.value):
             fileNum=len(os.listdir(OnlineConfig.INDIVIDUAL.value))
         else:
@@ -249,7 +253,7 @@ class TrainModel(object):
         onlineNum=int(np.ceil(fileNum/5))
         for i in range(onlineNum):
             envs.append(DQNRNNEnv(OnlineConfig.INDIVIDUAL.value))
-            trajectorys.append(DQNRNNTrajectory())
+            trajectorys.append(DQNRNNTrajectory2())
             pr.addRecorder()
             trainNums.append(OnlineConfig.PERSON.value)
             # trajectorys.append(DQNTrajectory())
@@ -298,12 +302,14 @@ class TrainModel(object):
                     updateTimes=int(np.ceil(self.newFileNums/5))
                     skipSize+=1
                     trainNums.append(OnlineConfig.PERSON.value)
-                    for i in range(updateTimes):
-                        envs.append(DQNRNNEnv(OnlineConfig.INDIVIDUAL.value))
-                        envs[-1].load_dict()
-                        envs[-1].get_file()
-                        pr.addRecorder()
-                        trajectorys.append(DQNRNNTrajectory())
+                    for sceneNum in range(1,5):
+                        for i in range(updateTimes):
+                            envs.append(DQNRNNEnv(os.path.join(OnlineConfig.INDIVIDUAL_NO_SCENE.value,str(sceneNum))))
+                            envs[-1].load_dict()
+                            envs[-1].get_file()
+                            pr.addRecorder()
+                            trajectorys.append(DQNRNNTrajectory2())
+                            trainScene.append(sceneNum)
                     
                     self.newFileNums=0
 
@@ -314,6 +320,7 @@ class TrainModel(object):
                 lastPList=[]
                 lengthsList=[]
                 personList=[]
+                sceneList=[]
                 # ans -> eye click goal isEnd
                 skipSize=np.minimum(15,skipSize)
                 skipNum=np.random.randint(low=0,high=20,size=skipSize)
@@ -334,28 +341,31 @@ class TrainModel(object):
                         if pr.flag[i]==False:
                             pr.init(i,ans[1])
                         lastP=torch.tensor(pr.getLastPresents(i),dtype=torch.long).to(device)
-                        person=torch.tensor([trainNums[i]],dtype=torch.float32).to(device)
+                        person=torch.tensor([trainNums[i]],dtype=torch.long).to(device)
+                        scene=torch.tensor([trainScene[i]],dtype=torch.long).to(device)
                         lastPList.append(lastP)
                         eyeList.append(eye)
                         clickList.append(click)
                         lengthsList.append(lengths)
                         personList.append(person)
+                        sceneList.append(scene)
                         # ans -> eye click goal isEnd
                         doneFlag=0
                         if ans[3]==1:
                             doneFlag=0
                         else:
                             doneFlag=1
-                        trajectorys[i].push(click,eye,ans[2],0,doneFlag*UTIL.GAMMA,lastP,lengths,person)
+                        trajectorys[i].push(click,eye,ans[2],0,doneFlag*UTIL.GAMMA,lastP,lengths,person,scene)
                         indexes.append(i)
                 clickCat=torch.stack(clickList,dim=0).to(device)
                 lastPCat=torch.stack(lastPList,dim=0).to(device)
                 lengthStack=torch.stack(lengthsList,dim=0)
                 personStack=torch.stack(personList,dim=0).to(device).unsqueeze(1)   
+                sceneStack=torch.stack(sceneList,dim=0).to(device).unsqueeze(1)   
                 # for e in eyeList:
                 #     print(f'e {e} len {len(e)}')
                 eyeList=torch.stack(eyeList,dim=0).to(device)
-                actions=self.agent.act(clickCat,eyeList,lastPCat,lengthStack,personStack)
+                actions=self.agent.act(clickCat,eyeList,lastPCat,lengthStack,personStack,sceneStack)
                 # print(f' aaaaa {actions}')
                 for actS,index in zip(actions,indexes):
                     pr.add(index,actS)
@@ -417,8 +427,8 @@ class TrainModel(object):
                     trainBatchSize=int((1+(self.trainBuffer.getRatio()))*self.batchSize)
                 if trainBatchSize*2 > self.trainBuffer.capacity and self.batchSize<256:
                     self.batchSize*=2
-                clickList,eyeList,lastPList,lengths,person,actionList,rewardList,maskList,nclickList,neyeList,nlastPList,nlengths,nperson = self.dataSetBuffer.sample(datasetBatchSize)
-                clickListT,eyeListT,lastPListT,lengthsT,personT,actionListT,rewardListT,maskListT,nclickListT,neyeListT,nlastPListT,nlengthsT,npersonT = self.trainBuffer.sample(trainBatchSize)
+                clickList,eyeList,lastPList,lengths,person,scene,actionList,rewardList,maskList,nclickList,neyeList,nlastPList,nlengths,nperson,nscene = self.dataSetBuffer.sample(datasetBatchSize)
+                clickListT,eyeListT,lastPListT,lengthsT,personT,sceneT,actionListT,rewardListT,maskListT,nclickListT,neyeListT,nlastPListT,nlengthsT,npersonT,nsceneT = self.trainBuffer.sample(trainBatchSize)
                 clickList=torch.cat([clickList,clickListT],dim=0)
                 eyeList=torch.cat([eyeList,eyeListT],dim=0)
                 lastPList=torch.cat([lastPList,lastPListT],dim=0)
@@ -432,21 +442,25 @@ class TrainModel(object):
                 nlengths=torch.cat([nlengths,nlengthsT],dim=0)
                 person=torch.cat([person,personT],dim=0)
                 nperson=torch.cat([nperson,npersonT],dim=0)
+                scene=torch.cat([scene,sceneT],dim=0)
+                nscene=torch.cat([nscene,nsceneT],dim=0)
+                
+
                 
                 
         
                 deltaP = torch.rand(self.remBlocskNum).to(device)
                 deltaP =deltaP/ deltaP.sum()
                 with torch.no_grad():
-                    onlineValues=self.agent.online(clickList,eyeList,lastPList,lengths,person)
+                    onlineValues=self.agent.online(clickList,eyeList,lastPList,lengths,person,scene)
                     onlineValues=sum(onlineValues)/len(onlineValues)
                     yAction=torch.argmax(onlineValues,dim=-1,keepdim=True)
-                    targetValues=self.agent.target(nclickList,neyeList,nlastPList,nlengths,nperson)
+                    targetValues=self.agent.target(nclickList,neyeList,nlastPList,nlengths,nperson,nsceneT)
                     for i in range(self.remBlocskNum):
                         targetValues[i]=targetValues[i]*deltaP[i]
                     targetValues=sum(targetValues)
                     y=targetValues.gather(dim=-1,index=yAction)*maskList+rewardList
-                values=self.agent.online(clickList,eyeList,lastPList,lengths,person)
+                values=self.agent.online(clickList,eyeList,lastPList,lengths,person,scene)
                 for i in range(self.remBlocskNum):
                     values[i]=values[i]*deltaP[i]
                 values=sum(values)

@@ -216,16 +216,13 @@ class DQNRNNEnv:
         self.move_list=[]
         self.state_list=[]
         while True:
-            if len(self.last_goal_list)<3:
+            while len(self.last_goal_list)<3:
                 self.get_goal()
-                self.last_goal_list.append(self.goal)
-                self.get_goal()
-                self.last_goal_list.append(self.goal)
-                self.get_goal()
-                self.last_goal_list.append(self.goal)
+                if len(self.last_goal_list)==0 or self.last_goal_list[-1]!=self.goal:
+                    self.last_goal_list.append(self.goal)
                 self.begin_idx=self.goal_nums
             else:
-                if t==0:
+                if t==0 and self.last_goal_list[-1]!=self.goal:
                     self.last_goal_list.append(self.goal)
             # while flag:
             self.get_goal()

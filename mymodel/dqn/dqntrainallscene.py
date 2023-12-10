@@ -144,7 +144,7 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,rem
     # ebuffer=ExampleBuffer(2**17)
     trainer = torch.optim.Adam(lr=lr, params=agent.online.parameters())
     loss=nn.HuberLoss()
-    agentBuffer=ReplayBufferRNN(2**17,device)
+    agentBuffer=ReplayBufferRNN2(2**19,device)
     if not os.path.exists(store_path):
         os.makedirs(store_path)
     m_store_path_a=os.path.join(store_path,'dqnnetoffline.pt')
@@ -171,14 +171,16 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,rem
     envPaths=[]
     trajectorys=[]
     personNum=[]
-    for env in multienvs:
-        envPath=os.path.join('/home/wu_tian_ci/eyedata/seperate/',env,'1')
-        envs.append(DQNRNNEnv(envPath))
-        envFlags.append(False)
-        envPaths.append(envPath)
-        trajectorys.append(DQNRNNTrajectory())
-        personNum.append(float(env))
-    trajectorys.append(DQNRNNTrajectory())
+    sceneNum=[]
+    for scene in range(1,5):
+        for env in multienvs:
+            envPath=os.path.join('/home/wu_tian_ci/eyedata/seperate/',env,str(scene))
+            envs.append(DQNRNNEnv(envPath))
+            envFlags.append(False)
+            envPaths.append(envPath)
+            trajectorys.append(DQNRNNTrajectory2())
+            personNum.append(int(env))
+            sceneNum.append(int(scene))
     for i in range(len(envs)):
         envs[i].load_dict()
         envs[i].get_file()
@@ -186,8 +188,6 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,rem
     pr=PresentsRecorder(len(envs))
     beginFlags=[True for i in range(len(envs))]
     for K in tqdm(range(epochs)):
-        jdr=DataRecorder()
-        jdr.restore_path=os.path.join(json_path,str(K)+'.json')
         # vdr=ValueRecoder()
         # vdr.restore_path=os.path.join(value_path,str(K)+'.json')
         # clp=ValueRecoder()
@@ -215,6 +215,15 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,rem
         endOutNoAct=0
         # 100
         processReward=[]
+
+        # scene
+        endInS=[0 for i in range(5)]
+        endOutS=[0 for i in range(5)]
+        inS=[0 for i in range(5)]
+        outS=[0 for i in range(5)]
+        errorsS=[0 for i in range(5)]
+        lenS=[0 for i in range(5)]
+
         for steps in range(500):
             eyeList=[]
             clickList=[]
@@ -222,6 +231,7 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,rem
             lastPList=[]
             lengthsList=[]
             personList=[]
+            sceneList=[]
             # ans -> eye click goal isEnd length
             for i in range(len(envs)):
                 ans=envs[i].act()
@@ -235,7 +245,8 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,rem
                     eye=torch.tensor(ans[0],dtype=torch.long)
                     click=torch.tensor(ans[1],dtype=torch.long).to(device)
                     lengths=torch.tensor(ans[4],dtype=torch.long)
-                    person=torch.tensor([personNum[i]],dtype=torch.float32).to(device)
+                    person=torch.tensor([personNum[i]],dtype=torch.long).to(device)
+                    scene=torch.tensor([sceneNum[i]],dtype=torch.long).to(device)
                     if pr.flag[i]==False:
                         pr.init(i,ans[1])
                     lastP=torch.tensor(pr.getLastPresents(i),dtype=torch.long).to(device)
@@ -244,6 +255,7 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,rem
                     clickList.append(click)
                     lengthsList.append(lengths)
                     personList.append(person)
+                    sceneList.append(scene)
                     # ans -> eye click goal isEnd
                     doneFlag=0
                     if ans[3]==1:
@@ -253,7 +265,7 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,rem
                     # print(ans[3])
                     # click,eye,goal,action,mask
                     # print(lengths)
-                    trajectorys[i].push(click,eye,ans[2],0,doneFlag*UTIL.GAMMA,lastP,lengths,person)
+                    trajectorys[i].push(click,eye,ans[2],0,doneFlag*UTIL.GAMMA,lastP,lengths,person,scene)
                     indexes.append(i)
                     if ans[3]==1:
                         beginFlags[i]=True
@@ -262,8 +274,9 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,rem
             lastPCat=torch.stack(lastPList,dim=0).to(device)
             lengthStack=torch.stack(lengthsList,dim=0)
             personStack=torch.stack(personList,dim=0).to(device).unsqueeze(1)            
+            sceneStack=torch.stack(sceneList,dim=0).to(device).unsqueeze(1)       
             eyeList=torch.stack(eyeList,dim=0).to(device)
-            actions=agent.act(clickCat,eyeList,lastPCat,lengthStack,personStack)
+            actions=agent.act(clickCat,eyeList,lastPCat,lengthStack,personStack,sceneStack)
             # print(f' aaaaa {actions}')
             for actS,index in zip(actions,indexes):
                 pr.add(index,actS)
@@ -296,8 +309,14 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,rem
                     lastWithNoAction+=traInfo[3]
                     totalIn+=traInfo[4]
                     totalOut+=traInfo[5]
+                    inS[sceneNum[index]]+=traInfo[4]
+                    outS[sceneNum[index]]+=traInfo[5]
+
                     endIn+=traInfo[6]
                     endOut+=int(traInfo[6])^1
+                    endInS[sceneNum[index]]+=traInfo[6]
+                    endOutS[sceneNum[index]]+=int(traInfo[6])^1
+
                     rewards.append(traInfo[7])
                     endAveReward.append(traInfo[8])
                     processReward.append(traInfo[7]-traInfo[8])
@@ -306,6 +325,9 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,rem
                     if traInfo[0]>=3:
                         traLenOverThree+=traInfo[0]
                         totalErrors+=traInfo[11]
+                        lenS[sceneNum[index]]+=traInfo[0]
+                        errorsS[sceneNum[index]]+=traInfo[11]
+
                     TDZeroList=trajectorys[index].getComTraZero()
                     if traInfo[12]!=-1:
                         endInNoAct+=traInfo[12]
@@ -320,19 +342,20 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,rem
                     with open(reward_path,'a') as f:
                         f.write('begin to train\n')
                     is_training=True
-                clickList,eyeList,lastPList,lengths,person,actionList,rewardList,maskList,nclickList,neyeList,nlastPList,nlengths,nperson= agentBuffer.sample(dbatch_size)
+                clickList,eyeList,lastPList,lengths,person,scene,actionList,rewardList,maskList,\
+                    nclickList,neyeList,nlastPList,nlengths,nperson,nscene= agentBuffer.sample(dbatch_size)
                 deltaP = torch.rand(remBlocskNum).to(device)
                 deltaP =deltaP/ deltaP.sum()
                 with torch.no_grad():
-                    onlineValues=agent.online(clickList,eyeList,lastPList,lengths,person)
+                    onlineValues=agent.online(clickList,eyeList,lastPList,lengths,person,scene)
                     onlineValues=sum(onlineValues)/len(onlineValues)
                     yAction=torch.argmax(onlineValues,dim=-1,keepdim=True)
-                    targetValues=agent.target(nclickList,neyeList,nlastPList,nlengths,nperson)
+                    targetValues=agent.target(nclickList,neyeList,nlastPList,nlengths,nperson,nscene)
                     for i in range(remBlocskNum):
                         targetValues[i]=targetValues[i]*deltaP[i]
                     targetValues=sum(targetValues)
                     y=targetValues.gather(dim=-1,index=yAction)*maskList+rewardList
-                values=agent.online(clickList,eyeList,lastPList,lengths,person)
+                values=agent.online(clickList,eyeList,lastPList,lengths,person,scene)
                 for i in range(remBlocskNum):
                     values[i]=values[i]*deltaP[i]
                 values=sum(values)
@@ -348,7 +371,7 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,rem
                 l.backward()
                 trainer.step()
                 # clp.add(l.cpu().detach().numpy().tolist())
-                if  steps%10==0 and steps!=0:
+                if  steps%5==0 and steps!=0:
                     agent.update()
 
         # eye click goal isEnd
@@ -380,6 +403,20 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,rem
         endOutNoAct=0
         
         '''
+        # errorR=[0 for i in range(5)]
+        # accR=[0 for i in range(5)]
+        # endAccR=[0 for i in range(5)]
+
+        errorR='\nerror: '
+        accR='\nIPA1: '
+        endAccR='\nIPA2: '
+
+        for i in range(1,5):
+            endAccR+=str(i)+' '+str(round(endInS[i]/(endInS[i]+endOutS[i]) if (endInS[i]+endOutS[i])>0  else 0 ,2))+' '
+            accR+=str(i)+' '+str(round(inS[i]/(inS[i]+outS[i]) if (inS[i]+outS[i])>0  else 0 ,2))+' '
+            errorR+=str(i)+' '+str(round(errorsS[i]/lenS[i] if lenS[i]>0  else 0 ,2))+' '
+    
+
         if len(t_reward)>0 and np.mean(t_reward)>best_scores and is_training:
             torch.save(agent.target.state_dict(), m_store_path_a)
             best_scores=np.mean(t_reward)
@@ -393,7 +430,8 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,rem
                 ' in_no_act:'+str(inNoAct)+' out_no_act:'+str(outNoAct)+' acc:'+str(round(inNoAct/(inNoAct+outNoAct),2))+'\n'+\
                 ' len_tra_over_one: '+str(traLenOverOne)+' no_action_num:'+str(noActionNum)+' no_action_num_80:'+str(noActionNumWithThreshold)+\
                 ' acc:'+str(round(noActionNum/traLenOverOne,2))+' acc2:'+str(round(noActionNumWithThreshold/traLenOverOne,2))+'\n'+\
-                ' len_tra_over_three: '+str(traLenOverThree)+' total_errors: '+str(totalErrors)+' acc: '+str(round(totalErrors/traLenOverThree,2))+'\n')
+                ' len_tra_over_three: '+str(traLenOverThree)+' total_errors: '+str(totalErrors)+' acc: '+str(round(totalErrors/traLenOverThree,2))+\
+                errorR+accR+endAccR+'\n')
         with open(reward_path,'a',encoding='UTF-8') as rewardInfoFile:
             rewardInfoFile.write('eposides:'+str(K+1)+' ave_eposides_rewards:'+str(round(np.mean(t_reward),2))+\
                 ' ave reward '+str(round(t_reward[-1],2)) +'\n end_reward:' +str(round(np.mean(t_end_reward[-1]),2))+' '+\
@@ -404,8 +442,8 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,rem
                 ' in_no_act:'+str(inNoAct)+' out_no_act:'+str(outNoAct)+' acc:'+str(round(inNoAct/(inNoAct+outNoAct),2))+'\n'+\
                 ' len_tra_over_one: '+str(traLenOverOne)+' no_action_num:'+str(noActionNum)+' no_action_num_80:'+str(noActionNumWithThreshold)+\
                 ' acc:'+str(round(noActionNum/traLenOverOne,2))+' acc2:'+str(round(noActionNumWithThreshold/traLenOverOne,2))+'\n'+\
-                ' len_tra_over_three: '+str(traLenOverThree)+' total_errors: '+str(totalErrors)+' acc: '+str(round(totalErrors/traLenOverThree,2))+'\n')
-
+                ' len_tra_over_three: '+str(traLenOverThree)+' total_errors: '+str(totalErrors)+' acc: '+str(round(totalErrors/traLenOverThree,2))+\
+                errorR+accR+endAccR+'\n')
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser()
@@ -420,12 +458,13 @@ if __name__=='__main__':
     parser.add_argument('-embed',type=int,default=128)
     parser.add_argument('-rems',type=int,default=5)
     parser.add_argument('-epochs',type=int,default=500)
+    parser.add_argument('-batchsize',type=int,default=256)
 
     args=parser.parse_args()
     # device=torch.device('cpu')
     device = torch.device(args.cuda if torch.cuda.is_available() else 'cpu')
     # agent=RNNAgent(device=device,rnn_layer=args.layers,embed_n=args.embed)
-    agent=REMAgent(device=device,rnn_layer=args.layers,embed_n=args.embed)
+    agent=REMAgent2(device=device,rnn_layer=args.layers,embed_n=args.embed)
     store=UTIL.getTimeStamp()
 
     if args.preload:
@@ -434,10 +473,10 @@ if __name__=='__main__':
         agent.load(actor_load)
     # else:
     #     actor_load='/home/wu_tian_ci/drl_project/mymodel/ddpg/pretrain_data/ddpg_train/1last_move5/ActorNet.pt'
-    store_path=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/',store[0:-6],'trainall',store[-6:])
-    json_path=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/json_path/',store[0:-6],'trainall',store[-6:])
-    value_path=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/value_path/',store[0:-6],'trainall',store[-6:])
-    critic_loss_path=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/critic_loss/',store[0:-6],'trainall',store[-6:])
+    store_path=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/',store[0:-6],'trainallscene',store[-6:])
+    json_path=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/json_path/',store[0:-6],'trainallscene',store[-6:])
+    value_path=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/value_path/',store[0:-6],'trainallscene',store[-6:])
+    critic_loss_path=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/critic_loss/',store[0:-6],'trainallscene',store[-6:])
     if not os.path.exists(json_path):
         os.makedirs(json_path)
     if not os.path.exists(value_path):
@@ -447,20 +486,12 @@ if __name__=='__main__':
     print(args.sup)
     print(store[-6:])
     envs=[]
-    exclude=[7,12,13]
+    exclude=[]
     for i in range(2,22):
         if i<10:
             envs.append('0'+str(i))
         else:
             envs.append(str(i))
-    # random.seed(3407) 
-    # random.shuffle(envs)
-    # random.seed(None)
-    # trainEnvs=envs[:15]
-    # trainenvs=['19', '16', '17', '10', '11', '03', '07', '08', '15', '02', '04', '14', '06', '09', '21']
-    # testEnvs=['20', '18', '13', '12', '05']
-
-    # testEnvs=envs[15:]
     print(device)
     
     if not os.path.exists(store_path):
@@ -470,5 +501,5 @@ if __name__=='__main__':
                 +' layers: '+str(args.layers)+" embded: "+str(args.embed)+' rems'+str(args.rems)+'\nexclude: '+str(exclude))
         if args.sup!='50':
             f.write('\n'+args.sup)
-    train_epoch(agent, args.lr, args.epochs, 256,device,args.mode,store_path=store_path,multienvs=envs,\
+    train_epoch(agent, args.lr, args.epochs, args.batchsize,device,args.mode,store_path=store_path,multienvs=envs,\
                 json_path=json_path,value_path=value_path,critic_loss_path=critic_loss_path,remBlocskNum=args.rems)
