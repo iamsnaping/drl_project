@@ -9,6 +9,7 @@ import numpy as np
 # import pynput.keyboard
 import os
 import collections
+import pandas as pd
 
 from copy import deepcopy as dp
 
@@ -473,7 +474,6 @@ class DQNRNNTrajectory(object):
     #             print(f'nums {i*10+j} {self.distribution[i*10+j]}',end=' ')
     #         print('')
 
-
 # scene
 class ReplayBufferRNN2(object):
     #click->3 eye->3 aciton->1 nclick->3 eye->3 mask->1 reward->1 seq->3 nseq->3
@@ -506,6 +506,34 @@ class ReplayBufferRNN2(object):
         self.ratio=0.
 
 
+    def refresh(self):
+        device=self.device
+        maxLen=self.capacity
+        self.lengths=torch.empty((maxLen),dtype=torch.long)
+        self.nlengths=torch.empty((maxLen),dtype=torch.long)
+
+        self.person=torch.empty((maxLen,1),dtype=torch.long).to(device)
+        self.nperson=torch.empty((maxLen,1),dtype=torch.long).to(device)
+
+        self.scene=torch.empty((maxLen,1),dtype=torch.long).to(device)
+        self.nscene=torch.empty((maxLen,1),dtype=torch.long).to(device)
+
+        self.clickList=torch.empty((maxLen,3),dtype=torch.long).to(device)
+        self.eyeList=torch.empty((maxLen,10),dtype=torch.long).to(device)
+        self.lastPList=torch.empty((maxLen,3),dtype=torch.long).to(device)
+        self.actionList=np.empty((maxLen),dtype=np.int64)
+        self.maskList=np.empty((maxLen),dtype=np.int64)
+        self.rewardList=np.empty((maxLen),dtype=np.int64)
+        self.nclickList=torch.empty((maxLen,3),dtype=torch.long).to(device)
+        self.neyeList=torch.empty((maxLen,10),dtype=torch.long).to(device)
+        self.nlastPList=torch.empty((maxLen,3),dtype=torch.long).to(device)
+
+        self.cursor=0
+        self.holding=0
+        self.isFull=False
+        self.ratio=0.
+
+
     def getRatio(self):
         self.ratio=self.holding/self.capacity
         return self.ratio
@@ -518,7 +546,6 @@ class ReplayBufferRNN2(object):
         if cursor>self.capacity:
             c1=cursor-self.capacity
             c2=len(lengths)-c1
-            # print(self.cursor,cursor,len(lengths),c1,c2,self.capacity)
             self.lengths[self.cursor:]=lengths[0:c2]
             self.nlengths[self.cursor:]=nlenghts[0:c2]
             self.clickList[self.cursor:]=clickList[0:c2]
@@ -571,10 +598,8 @@ class ReplayBufferRNN2(object):
 
             self.person[self.cursor:cursor]=person
             self.nperson[self.cursor:cursor]=nperson
-
             self.scene[self.cursor:cursor]=scene
             self.nscene[self.cursor:cursor]=nscene
-
             self.cursor=cursor%self.capacity
             if not self.isFull:
                 if cursor==self.capacity:
@@ -587,9 +612,9 @@ class ReplayBufferRNN2(object):
     # click to device 
     #  clickList 0 ,eyeList 1,lengths 2,actionList 3,maskList 4,rewardList 5,nclickList 6,neyeList 7 lengths 8
     def sample(self,batchSize):
+
         indexes=np.random.randint(low=0,high=self.holding,size=batchSize).tolist()
-        # batch=np.random.sample(self.dataList,batchSize)
-        # batch.sort(key=lambda x: x[2],reverse=True)
+
         eyeList=self.eyeList[indexes]
         clickList=self.clickList[indexes]
         lengths=self.lengths[indexes]
@@ -628,9 +653,6 @@ class ReplayBufferRNN2(object):
 # scene
 class DQNRNNTrajectory2(object):
     def __init__(self) -> None:
-
-
-
         self.tras=[]
         self.newTras=[]
         self.rewardFun=DQNReward()
@@ -919,7 +941,65 @@ class DQNRNNTrajectory2(object):
     #         print('')
 
 
+class DataTally(object):
+    def __init__(self):
+        ...
 
+    
+    # timeStamp, eyeX, eyeY, mouseX, mouseY, mouseS,predictX,predictY
+    def tallyList(self,dataList):
+        totalTime=0
+        totalMove=0
+        moveTimes=0
+        lastX,lastY=-1,-1
+        predictFlag=False
+        for i in range(1,len(dataList)):
+            x,y=int(dataList[i][3]),int(dataList[y])
+            if x!=dataList[i-1][3] or y!=dataList[i-1][4]:
+                if predictFlag:
+                    if lastX!=x or lastY!=y:
+                        moveTimes+=1
+                        totalMove+=np.sqrt((x-lastX)**2+(y-lastY)**2)
+                else:
+                    moveTimes+=1
+                    totalMove+=np.sqrt((x-dataList[i-1][3])**2+(y-dataList[i-1][4])**2)
+                    totalTime+=dataList[i][0]-dataList[i-1][0]
+            predictFlag=False
+            if dataList[i][-1]!=0 and dataList[i][-2]!=0:
+                lastX,lastY=dataList[i][-2],dataList[i][-1]
+                predictFlag=True
+
+        return totalTime,totalMove,moveTimes
+
+
+
+    
+    def tallyCSV(self,csvFilePath):
+        df=pd.read_csv(csvFilePath,header=None)
+        fileLen=len(df)
+        totalTime=0
+        totalMove=0
+        moveTimes=0
+        lastX,lastY=-1,-1
+        predictFlag=False
+        for i in range(1,fileLen):
+            row=self.df.iloc[i]
+            x,y=int(row[3]),int(row[4])
+            if x!=df.iloc[i-1][3] or y!=df.iloc[i-1][4]:
+                if predictFlag:
+                    if lastX!=x or lastY!=y:
+                        moveTimes+=1
+                        totalMove+=np.sqrt((x-lastX)**2+(y-lastY)**2)
+                else:
+                    moveTimes+=1
+                    totalMove+=np.sqrt((x-df.iloc[i-1][3])**2+(y-df.iloc[i-1][4])**2)
+                    totalTime+=df.iloc[i][0]-df.iloc[i-1][0]
+            predictFlag=False
+            if df.iloc[i][-1]!=0 and df.iloc[i][-2]!=0:
+                lastX,lastY=df.iloc[i][-2],df.iloc[i][-1]
+                predictFlag=True
+
+        return totalTime,totalMove,moveTimes
 
 
 EYEAREAS=[[0,0,1300,1080],[1300,0,1920,390],[1300,390,1920,1080],

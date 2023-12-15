@@ -207,6 +207,7 @@ def train_epoch(agent:REMAgent, lr,
 
     prTrain=PresentsRecorder(len(envs))
     prTest=PresentsRecorder(len(testenvs))
+    orderNum=0
     for K in tqdm(range(epochs)):
         jdr=DataRecorder()
         jdr.restore_path=os.path.join(json_path,str(K)+'.json')
@@ -256,6 +257,7 @@ def train_epoch(agent:REMAgent, lr,
         testLenS=[0 for i in range(5)]
 
         for steps in range(500):
+            orderNum+=1
             eyeList=[]
             clickList=[]
             indexes=[]
@@ -366,10 +368,10 @@ def train_epoch(agent:REMAgent, lr,
 
 
                     TDZeroList=trajectorys[index].getComTraZero()
+                    # orderList=torch.tensor([orderNum for i in range(TDZeroList[-1].shape[0])],dtype=torch.float32)
                     if traInfo[12]!=-1:
                         endInNoAct+=traInfo[12]
                         endOutNoAct+=int(traInfo[12])^1
-                    
                     agentBuffer.push(TDZeroList)
                     trajectorys[index].clear()
             dbatch_size=int((1+(agentBuffer.getRatio()))*batch_size)
@@ -546,8 +548,8 @@ def train_epoch(agent:REMAgent, lr,
                         testTras[testIndex].clear()
 
         t_reward_len+=1
-        if t_reward_len>=1000:
-            t_reward_len%=1000
+        if t_reward_len>=20:
+            t_reward_len%=20
             t_reward[t_reward_len]=np.mean(rewards)
             t_end_reward[t_reward_len]=np.mean(endAveReward)
         else:
@@ -625,7 +627,6 @@ def train_epoch(agent:REMAgent, lr,
             trainEndAccR+=str(i)+' '+str(round(trainEndInS[i]/(trainEndInS[i]+trainEndOutS[i]) if (trainEndInS[i]+trainEndOutS[i])>0  else 0 ,2))+' '
             trainAccR+=str(i)+' '+str(round(trainInS[i]/(trainInS[i]+trainOutS[i]) if (trainInS[i]+trainOutS[i])>0  else 0 ,2))+' '
             trainErrorR+=str(i)+' '+str(round(trainErrorsS[i]/trainLenS[i] if trainLenS[i]>0  else 0 ,2))+' '
-   
 
         if len(rewardsTest)>0 and np.mean(rewardsTest)>best_scores and is_training:
             torch.save(agent.target.state_dict(), m_store_path_a)
@@ -634,55 +635,57 @@ def train_epoch(agent:REMAgent, lr,
                 updateInfoFile.write('eposides:'+str(K+1)+' ave_eposides_rewards:'+str(round(np.mean(t_reward),2))+\
                 ' ave reward '+str(round(t_reward[-1],2)) +'\n end_reward:' +str(round(np.mean(t_end_reward[-1]),2))+' '+\
                 ' ave_eposides_end_reward:'+str(round(np.mean(t_end_reward),2))+'\n'+\
-                ' end_in: '+str(endIn)+' end_out: '+str(endOut)+' train_end_acc: '+str(round(endIn/(endOut+endIn),2))+\
-                ' end_in_no_action: '+str(endInNoAct)+' end_out_no_act: '+str(endOutNoAct)+' acc:'+str(round(endInNoAct/(endInNoAct+endOutNoAct),2))+'\n'+\
-                ' in: '+str(totalIn)+' _out:'+str(totalOut)+' train_ave_acc:'+str(round(totalIn/(totalIn+totalOut),2))+\
-                ' in_no_act:'+str(inNoAct)+' out_no_act:'+str(outNoAct)+' acc:'+str(round(inNoAct/(inNoAct+outNoAct),2))+'\n'+\
+                ' end_in: '+str(endIn)+' end_out: '+str(endOut)+' train_end_acc: '+str(round(endIn/(endOut+endIn) if (endOut+endIn)>0 else 0,2))+\
+                ' end_in_no_action: '+str(endInNoAct)+' end_out_no_act: '+str(endOutNoAct)+' acc:'+str(round(endInNoAct/(endInNoAct+endOutNoAct) if (endInNoAct+endOutNoAct)>0 else 0,2))+'\n'+\
+                ' in: '+str(totalIn)+' _out:'+str(totalOut)+' train_ave_acc:'+str(round(totalIn/(totalIn+totalOut) if (totalIn+totalOut)>0 else 0,2))+\
+                ' in_no_act:'+str(inNoAct)+' out_no_act:'+str(outNoAct)+' acc:'+str(round(inNoAct/(inNoAct+outNoAct) if (inNoAct+outNoAct)>0 else 0,2))+'\n'+\
                 ' len_tra_over_one: '+str(traLenOverOne)+' no_action_num:'+str(noActionNum)+' no_action_num_80:'+str(noActionNumWithThreshold)+\
-                ' acc:'+str(round(noActionNum/traLenOverOne,2))+' acc2:'+str(round(noActionNumWithThreshold/traLenOverOne,2))+'\n'+\
-                ' len_tra_over_three: '+str(traLenOverThree)+' total_errors: '+str(totalErrors)+' acc: '+str(round(totalErrors/traLenOverThree,2))+\
+                ' acc:'+str(round(noActionNum/traLenOverOne if traLenOverOne > 0 else 0,2))+' acc2:'+str(round(noActionNumWithThreshold/traLenOverOne if traLenOverOne>0 else 0,2))+'\n'+\
+                ' len_tra_over_three: '+str(traLenOverThree)+' total_errors: '+str(totalErrors)+' acc: '+str(round(totalErrors/traLenOverThree if traLenOverThree>0 else 0,2))+\
                 trainErrorR+trainAccR+trainEndAccR+'\n')
+
             with open(updateTestInfo,'a',encoding='UTF-8') as updateTestInfoFile:
                 updateTestInfoFile.write('eposides:'+str(K+1)+' ave_eposides_rewards:'+str(round(np.mean(rewardsTest),2))+\
                 ' end_reward:' +str(round(np.mean(endAveRewardTest),2))+'\n'+\
-                ' end_in: '+str(endInTest)+' end_out: '+str(endOutTest)+' train_end_acc: '+str(round(endInTest/(endOutTest+endInTest),2))+\
-                ' end_in_no_action: '+str(endInNoActTest)+' end_out_no_act: '+str(endOutNoActTest)+' acc:'+str(round(endInNoActTest/(endInNoActTest+endOutNoActTest),2))+'\n'+\
-                ' in: '+str(totalInTest)+' _out:'+str(totalOutTest)+' train_ave_acc:'+str(round(totalInTest/(totalInTest+totalOutTest),2))+\
-                ' in_no_act:'+str(inNoActTest)+' out_no_act:'+str(outNoActTest)+' acc:'+str(round(inNoActTest/(inNoActTest+outNoActTest),2))+'\n'+\
+                ' end_in: '+str(endInTest)+' end_out: '+str(endOutTest)+' train_end_acc: '+str(round(endInTest/(endOutTest+endInTest) if (endOutTest+endInTest)>0 else 0,2))+\
+                ' end_in_no_action: '+str(endInNoActTest)+' end_out_no_act: '+str(endOutNoActTest)+' acc:'+str(round(endInNoActTest/(endInNoActTest+endOutNoActTest) if (endInNoActTest+endOutNoActTest) > 0 else 0,2))+'\n'+\
+                ' in: '+str(totalInTest)+' _out:'+str(totalOutTest)+' train_ave_acc:'+str(round(totalInTest/(totalInTest+totalOutTest) if (totalInTest+totalOutTest) >0 else 0,2))+\
+                ' in_no_act:'+str(inNoActTest)+' out_no_act:'+str(outNoActTest)+' acc:'+str(round(inNoActTest/(inNoActTest+outNoActTest) if (inNoActTest+outNoActTest) > 0 else 0,2))+'\n'+\
                 ' len_tra_over_one: '+str(traLenOverOneTest)+' no_action_num:'+str(noActionNumTest)+' no_action_num_80:'+str(noActionNumWithThresholdTest)+\
-                ' acc:'+str(round(noActionNumTest/traLenOverOneTest,2))+' acc2:'+str(round(noActionNumWithThresholdTest/traLenOverOneTest,2))+'\n'+\
+                ' acc:'+str(round(noActionNumTest/traLenOverOneTest if traLenOverOneTest>0 else 0,2))+' acc2:'+str(round(noActionNumWithThresholdTest/traLenOverOneTest if traLenOverOneTest > 0 else 0,2))+'\n'+\
                 ' len_tra_over_three: '+str(traLenOverThreeTest)+\
                 ' total_errors: '+str(totalErrorsTest)+' acc: '+\
-                str(round(totalErrorsTest/traLenOverThreeTest,2))+'\n'+\
+                str(round(totalErrorsTest/traLenOverThreeTest if traLenOverThreeTest > 0 else 0,2))+'\n'+\
                 ' inout_mean+std: '+str(round(inOutMean,2))+'+'+str(round(inOutStd,2))+\
                 ' inout_no_action_mean+std: '+str(round(inOutNoActionMean,2))+'+'+str(round(inOutNoActionStd,2))+'\n'+\
                 ' end_inout_mean+std: '+str(round(endInOutMean,2))+'+'+str(round(endInOutStd,2))+\
                 ' end_inout_no_action_mean+std: '+str(round(endInOutNoActionMean,2))+'+'+str(round(endInOutNoActionStd,2))+\
-            testErrorR+testAccR+testEndAccR+'\n')
+                testErrorR+testAccR+testEndAccR+'\n')
         with open(reward_path,'a',encoding='UTF-8') as rewardInfoFile:
             rewardInfoFile.write('eposides:'+str(K+1)+' ave_eposides_rewards:'+str(round(np.mean(t_reward),2))+\
                 ' ave reward '+str(round(t_reward[-1],2)) +'\n end_reward:' +str(round(np.mean(t_end_reward[-1]),2))+' '+\
                 ' ave_eposides_end_reward:'+str(round(np.mean(t_end_reward),2))+'\n'+\
-                ' end_in: '+str(endIn)+' end_out: '+str(endOut)+' train_end_acc: '+str(round(endIn/(endOut+endIn),2))+\
-                ' end_in_no_action: '+str(endInNoAct)+' end_out_no_act: '+str(endOutNoAct)+' acc:'+str(round(endInNoAct/(endInNoAct+endOutNoAct),2))+'\n'+\
-                ' in: '+str(totalIn)+' _out:'+str(totalOut)+' train_ave_acc:'+str(round(totalIn/(totalIn+totalOut),2))+\
-                ' in_no_act:'+str(inNoAct)+' out_no_act:'+str(outNoAct)+' acc:'+str(round(inNoAct/(inNoAct+outNoAct),2))+'\n'+\
+                ' end_in: '+str(endIn)+' end_out: '+str(endOut)+' train_end_acc: '+str(round(endIn/(endOut+endIn) if (endOut+endIn) > 0 else 0,2))+\
+                ' end_in_no_action: '+str(endInNoAct)+' end_out_no_act: '+str(endOutNoAct)+' acc:'+str(round(endInNoAct/(endInNoAct+endOutNoAct) if (endInNoAct+endOutNoAct) > 0 else 0,2))+'\n'+\
+                ' in: '+str(totalIn)+' _out:'+str(totalOut)+' train_ave_acc:'+str(round(totalIn/(totalIn+totalOut) if (totalIn+totalOut) > 0 else 0,2))+\
+                ' in_no_act:'+str(inNoAct)+' out_no_act:'+str(outNoAct)+' acc:'+str(round(inNoAct/(inNoAct+outNoAct) if (inNoAct+outNoAct) > 0 else 0,2))+'\n'+\
                 ' len_tra_over_one: '+str(traLenOverOne)+' no_action_num:'+str(noActionNum)+' no_action_num_80:'+str(noActionNumWithThreshold)+\
-                ' acc:'+str(round(noActionNum/traLenOverOne,2))+' acc2:'+str(round(noActionNumWithThreshold/traLenOverOne,2))+'\n'+\
-                ' len_tra_over_three: '+str(traLenOverThree)+' total_errors: '+str(totalErrors)+' acc: '+str(round(totalErrors/traLenOverThree,2))+\
+                ' acc:'+str(round(noActionNum/traLenOverOne if traLenOverOne > 0 else 0,2))+' acc2:'+str(round(noActionNumWithThreshold/traLenOverOne if traLenOverOne > 0 else 0,2))+'\n'+\
+                ' len_tra_over_three: '+str(traLenOverThree)+' total_errors: '+str(totalErrors)+' acc: '+str(round(totalErrors/traLenOverThree if traLenOverThree > 0 else 0,2))+\
                 trainErrorR+trainAccR+trainEndAccR+'\n')
         with open(testInfo,'a',encoding='UTF-8') as testInfoFile:
             testInfoFile.write('eposides:'+str(K+1)+' ave_eposides_rewards:'+str(round(np.mean(rewardsTest),2))+\
             ' end_reward:' +str(round(np.mean(endAveRewardTest),2))+'\n'+\
-            ' end_in: '+str(endInTest)+' end_out: '+str(endOutTest)+' train_end_acc: '+str(round(endInTest/(endOutTest+endInTest),2))+\
-            ' end_in_no_action: '+str(endInNoActTest)+' end_out_no_act: '+str(endOutNoActTest)+' acc:'+str(round(endInNoActTest/(endInNoActTest+endOutNoActTest),2))+'\n'+\
-            ' in: '+str(totalInTest)+' _out:'+str(totalOutTest)+' train_ave_acc:'+str(round(totalInTest/(totalInTest+totalOutTest),2))+\
-            ' in_no_act:'+str(inNoActTest)+' out_no_act:'+str(outNoActTest)+' acc:'+str(round(inNoActTest/(inNoActTest+outNoActTest),2))+'\n'+\
+            ' end_in: '+str(endInTest)+' end_out: '+str(endOutTest)+' train_end_acc: '+str(round(endInTest/(endOutTest+endInTest) if (endOutTest+endInTest) > 0 else 0,2))+\
+            ' end_in_no_action: '+str(endInNoActTest)+' end_out_no_act: '+str(endOutNoActTest)+' acc:'+str(round(endInNoActTest/(endInNoActTest+endOutNoActTest) if (endInNoActTest+endOutNoActTest) > 0 else 0,2))+'\n'+\
+            ' in: '+str(totalInTest)+' _out:'+str(totalOutTest)+' train_ave_acc:'+str(round(totalInTest/(totalInTest+totalOutTest) if (totalInTest+totalOutTest)>0 else 0 ,2))+\
+            ' in: '+str(totalInTest)+' _out:'+str(totalOutTest)+' train_ave_acc:'+str(round(totalInTest/(totalInTest+totalOutTest) if (totalInTest+totalOutTest)  > 0 else 0,2))+\
+            ' in_no_act:'+str(inNoActTest)+' out_no_act:'+str(outNoActTest)+' acc:'+str(round(inNoActTest/(inNoActTest+outNoActTest) if (inNoActTest+outNoActTest) > 0 else 0,2))+'\n'+\
             ' len_tra_over_one: '+str(traLenOverOneTest)+' no_action_num:'+str(noActionNumTest)+' no_action_num_80:'+str(noActionNumWithThresholdTest)+\
-            ' acc:'+str(round(noActionNumTest/traLenOverOneTest,2))+' acc2:'+str(round(noActionNumWithThresholdTest/traLenOverOneTest,2))+'\n'+\
+            ' acc:'+str(round(noActionNumTest/traLenOverOneTest if traLenOverOneTest > 0 else 0,2))+' acc2:'+str(round(noActionNumWithThresholdTest/traLenOverOneTest if traLenOverOneTest > 0 else 0,2))+'\n'+\
             ' len_tra_over_three: '+str(traLenOverThreeTest)+\
             ' total_errors: '+str(totalErrorsTest)+' acc: '+\
-            str(round(totalErrorsTest/traLenOverThreeTest,2))+'\n'+\
+            str(round(totalErrorsTest/traLenOverThreeTest if traLenOverThreeTest > 0 else 0,2))+'\n'+\
             ' inout_mean+std: '+str(round(inOutMean,2))+'+'+str(round(inOutStd,2))+\
             ' inout_no_action_mean+std: '+str(round(inOutNoActionMean,2))+'+'+str(round(inOutNoActionStd,2))+'\n'+\
             ' end_inout_mean+std: '+str(round(endInOutMean,2))+'+'+str(round(endInOutStd,2))+\

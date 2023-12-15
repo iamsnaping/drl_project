@@ -487,7 +487,8 @@ if __name__=='__main__':
     print(store[-6:])
     envs=[]
     exclude=[]
-    for i in range(2,22):
+    
+    for i in range(2,17):
         if i<10:
             envs.append('0'+str(i))
         else:

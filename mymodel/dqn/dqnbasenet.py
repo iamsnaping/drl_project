@@ -304,8 +304,9 @@ class REMNet2(nn.Module):
         personPosition=self.personEmbed(person).squeeze(1)
         scenePosition=self.sceneEmbed(scene).squeeze(1)
         
-        # actions1=actions1+personPosition+scenePosition
-        actions1=actions1+personPosition
+        actions1=actions1+personPosition+scenePosition
+        # actions1=actions1+personPosition
+        # actions1=actions1+scenePosition
         ansList=[]
         for layer in self.remBlocks:
             ansList.append(layer(actions1))

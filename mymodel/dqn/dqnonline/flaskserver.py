@@ -216,6 +216,7 @@ class TrainModel(object):
         self.dc=DataCreater()
         self.newFileNums=0
         self.remBlocskNum=5
+        self.sceneNum=1
 
     # multi threading
     def train(self):
@@ -559,7 +560,7 @@ class TrainModel(object):
             f.write(writeTxt)
 
     def predict(self,*data):
-        clickList,eyeList,length,lastP,clickRegion,state,person=data
+        clickList,eyeList,length,lastP,clickRegion,state,person,scene=data
         mask=UTIL.GAMMA
         if self.update:
             with modelConditioner:
@@ -573,12 +574,13 @@ class TrainModel(object):
         lenTensor=torch.tensor([length],dtype=torch.long)
         pTensor=torch.tensor([lastP],dtype=torch.long).unsqueeze(0).to(self.device)
         personTensor=torch.tensor([[[person]]],dtype=torch.float32).to(self.device)
-        ans=int(self.predictModel.act(clickTensor,eyeTensor,pTensor,lenTensor,personTensor))
+        sceneTensor=torch.tensor([[[scene]]],dtype=torch.float32).to(self.device)
+        ans=int(self.predictModel.act(clickTensor,eyeTensor,pTensor,lenTensor,personTensor,sceneTensor))
         # click,eye,goal,action,mask
         mask=UTIL.GAMMA
         if state==0:
             mask=0
-        self.tras.push(clickTensor.squeeze(),eyeTensor.squeeze(),0,ans,mask,pTensor.squeeze(),lenTensor.squeeze(),personTensor.squeeze(0).squeeze(0))
+        self.tras.push(clickTensor.squeeze(),eyeTensor.squeeze(),0,ans,mask,pTensor.squeeze(),lenTensor.squeeze(),personTensor.squeeze(0).squeeze(0),sceneTensor.squeeze(0).squeeze(0))
         if state==0:
             print(f'add')
             self.tras.setGoal(clickRegion)
@@ -609,28 +611,29 @@ def getResponse(flag=True,message='success',data=True):
     return responseDict
 
 
-@app.route('/sendFile',methods=['post','get'])
-def saveFile():
-    print('send')
-    global model
-    data=request.files.get('file')
-    fileName=request.files.get('fileName')
-    data.save(os.path.join(OnlineConfig.EYE_DATA_PATH.value,fileName))
-    model.dc.refresh()
-    writeTxt=model.getAveTraAcc()
-    model.writeTxt(writeTxt)
-    print(f'this is txt {writeTxt}')
-    model.traAccClear()
-    model.writeTxt('\nend\n\n')
-    responseDict=getResponse()
-    responseJson=json.dumps(responseDict)
-    response=make_response(responseJson)
-    model.newFileNums+=1
-    return response
+# @app.route('/sendFile',methods=['post','get'])
+# def saveFile():
+#     print('send')
+#     global model
+#     data=request.files.get('file')
+#     fileName=request.files.get('fileName')
+#     data.save(os.path.join(OnlineConfig.EYE_DATA_PATH.value,fileName))
+#     model.dc.refresh()
+#     writeTxt=model.getAveTraAcc()
+#     model.writeTxt(writeTxt)
+#     print(f'this is txt {writeTxt}')
+#     model.traAccClear()
+#     model.writeTxt('\nend\n\n')
+#     responseDict=getResponse()
+#     responseJson=json.dumps(responseDict)
+#     response=make_response(responseJson)
+#     model.newFileNums+=1
+#     return response
 
 
 @app.route('/sendData',methods=['post','get'])
 def sendData():
+    global model
     print('send')
     model.dc.refresh()
     writeTxt=model.getAveTraAcc()
@@ -643,6 +646,7 @@ def sendData():
     dataList=resp.get('dataList')
     peopleNum=resp.get('peopleNum')
     sceneNum=resp.get('sceneNum')
+    model.sceneNum=sceneNum
     savePath=os.path.join(OnlineConfig.EYE_DATA_PATH.value,peopleNum,sceneNum)
     if not os.path.exists(savePath):
         os.makedirs(savePath)
@@ -710,7 +714,7 @@ def getPredict():
     global model,STOP_TRAIN_FLAG
     resp=request.get_json()
     responseDict=getResponse()
-    clickRegion,eyeRegion,mouseS,person=resp.get('clickRegion'),resp.get('eyeRegion'),resp.get('mouseS'),resp.get('person')
+    clickRegion,eyeRegion,mouseS,person,sceneID=resp.get('clickRegion'),resp.get('eyeRegion'),resp.get('mouseS'),resp.get('person'),resp.get('scene')
     eyeAns=model.dc.addEye(eyeRegion)
     clickAns=model.dc.addClick(clickRegion)
     if clickAns[0]==False:
@@ -720,7 +724,7 @@ def getPredict():
     else:
         # clickList,eyeList,length,lastP,clickRegion,statefg
         lastP=model.dc.getP()
-        ans=model.predict(clickAns[1],eyeAns[0],eyeAns[1],lastP,clickRegion,mouseS,person)
+        ans=model.predict(clickAns[1],eyeAns[0],eyeAns[1],lastP,clickRegion,mouseS,person,sceneID)
         responseDict['data']=ans[0]
         responseDict['flag']=True
         responseDict['message']=ans[1]
