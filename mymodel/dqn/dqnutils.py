@@ -1184,8 +1184,6 @@ class DataCollector(object):
         # # print(row[3]*1.25,row[4]*1.25)
         return self.goal_nums
 
-
-
     def tallyOffLineCurveAndStraightLineAndMovingTime(self):
         # self.load_dict()
         # self.get_file()
@@ -1244,7 +1242,6 @@ class DataCollector(object):
     def tallyIPA1IPA2(self):
         pass
 
-    # 
     def tallySavingDisFromAgent(self,agent,testAllEnvs,testAllNum,testAllScene,device,savePath,restrict):
         # print(restrict)
         self.restrict=restrict
@@ -1322,8 +1319,6 @@ class DataCollector(object):
                 f.write('num: '+str(testAllNum[i])+' scene: '+str(testAllScene[i])+' savingdis: '+str(savingDis)+' straightDis: '+str(straight)+' totalDis: '+str(totalDis)+'\n')
             totalDis=0
 
-                
-    
   
 EYEAREAS=[[0,0,1300,1080],[1300,0,1920,390],[1300,390,1920,1080],
           [0+1920,0,560+1920,260],[0+1920,260,560+1920,670],[0+1920,670,560+1920,1080],#left
