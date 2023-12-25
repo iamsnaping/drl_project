@@ -1,10 +1,10 @@
 import enum
 import os
 class OnlineConfig(enum.Enum):
-    LOAD_PATH='/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231224/trainallscene/1/dqnnetoffline.pt'
-    ITERATION_PATH='/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231224/trainallscene/1/dqnnetoffline.pt'
-    NO_ITERATION_PATH='/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231224/trainallscene/1/dqnnetoffline.pt'
-    EYE_DATA_PATH='/home/wu_tian_ci/eyedatanew'
+    LOAD_PATH='/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231225/trainallscene/1/dqnnetoffline.pt'
+    ITERATION_PATH='/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231225/trainallscene/1/dqnnetoffline.pt'
+    NO_ITERATION_PATH='/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231225/trainallscene/1/dqnnetoffline.pt'
+    EYE_DATA_PATH='/home/wu_tian_ci/smallbatch'
     ONLIEN_DATA_PATH='/home/wu_tian_ci/drl_project/mymodel/dqn/dqnonline/onlinedata'
     # INDIVIDUAL='/home/wu_tian_ci/eyedatanew/23/1'
     # INDIVIDUAL_NO_SCENE='/home/wu_tian_ci/eyedatanew/23'

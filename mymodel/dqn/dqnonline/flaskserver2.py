@@ -222,6 +222,7 @@ class TrainModel(object):
         self.newFileNums=0
         self.remBlocskNum=5
         self.best_scores=-np.inf
+        self.currentID=-1
     
     def loadModel(self):
         if self.mode==0:
@@ -291,14 +292,15 @@ class TrainModel(object):
         trainScene=[]
         skipSize=5
 
-        if os.path.exists(OnlineConfig.INDIVIDUAL.value):
-            fileNum=len(os.listdir(OnlineConfig.INDIVIDUAL.value))
-        else:
-            fileNum=0
-        onlineNum=int(np.ceil(fileNum/5))
+        # if os.path.exists(OnlineConfig.INDIVIDUAL.value):
+        #     fileNum=len(os.listdir(OnlineConfig.INDIVIDUAL.value))
+        # else:
+        #     fileNum=0
+        # onlineNum=int(np.ceil(fileNum/5))
+        fileList=os.listdir(OnlineConfig.EYE_DATA_PATH.value)
         for scene in range(1,5):
-            for i in range(onlineNum):
-                envPath=os.path.join(OnlineConfig.INDIVIDUAL_NO_SCENE.value,str(scene))
+            for dir in fileList:
+                envPath=os.path.join(OnlineConfig.EYE_DATA_PATH.value,dir,str(scene))
                 if not os.path.exists(envPath):
                     continue
                 if len(os.listdir(envPath))==0:
@@ -306,8 +308,8 @@ class TrainModel(object):
                 envs.append(DQNRNNEnv(envPath))
                 trajectorys.append(DQNRNNTrajectory2())
                 pr.addRecorder()
-                trainNums.append(OnlineConfig.PERSON.value)
-                trainScene.append(scene)
+                trainNums.append(int(dir))
+                trainScene.append(int(scene))
         for i in range(len(envs)):
             envs[i].setMODE(self.mode)
             envs[i].load_dict()
@@ -359,26 +361,26 @@ class TrainModel(object):
                     print('awake2')
                 if self.switchModeFlag:
                     break
-                if self.newFileNums%5==0 and self.newFileNums!=0:
-                    updateTimes=int(np.ceil(self.newFileNums/5))
-                    skipSize+=1
-                    for sceneNum in range(1,5):
-                        for i in range(updateTimes):
-                            envPath=os.path.join(OnlineConfig.INDIVIDUAL_NO_SCENE.value,str(scene))
-                            if not os.path.exists(envPath):
-                                continue
-                            if len(os.listdir(envPath))==0:
-                                continue
-                            envs.append(DQNRNNEnv(envPath))
-                            envs[i].setMODE(self.mode)
-                            envs[-1].load_dict()
-                            envs[-1].get_file()
-                            pr.addRecorder()
-                            trajectorys.append(DQNRNNTrajectory2())
-                            trainNums.append(OnlineConfig.PERSON.value)
-                            trainScene.append(sceneNum)
+                # if self.newFileNums%5==0 and self.newFileNums!=0:
+                #     updateTimes=int(np.ceil(self.newFileNums/5))
+                #     skipSize+=1
+                #     for sceneNum in range(1,5):
+                #         for i in range(updateTimes):
+                #             envPath=os.path.join(OnlineConfig.INDIVIDUAL_NO_SCENE.value,str(scene))
+                #             if not os.path.exists(envPath):
+                #                 continue
+                #             if len(os.listdir(envPath))==0:
+                #                 continue
+                #             envs.append(DQNRNNEnv(envPath))
+                #             envs[i].setMODE(self.mode)
+                #             envs[-1].load_dict()
+                #             envs[-1].get_file()
+                #             pr.addRecorder()
+                #             trajectorys.append(DQNRNNTrajectory2())
+                #             trainNums.append(OnlineConfig.PERSON.value)
+                #             trainScene.append(sceneNum)
                     
-                    self.newFileNums=0
+                #     self.newFileNums=0
                 # print('train2')
                 eyeList=[]
                 clickList=[]
@@ -388,11 +390,17 @@ class TrainModel(object):
                 personList=[]
                 sceneList=[]
                 # ans -> eye click goal isEnd
-                skipSize=np.minimum(15,skipSize)
-                # skipNum=np.random.randint(low=0,high=20,size=skipSize)
+                skipNum=[]
+                l=np.min(trainNums)
+                h=np.max(trainNums)
+                skipSize=np.minimum(h-l-5)
+                if skipSize >0:
+                    skipNum=np.random.randint(low=l,high=h,size=skipSize)
                 for i in range(len(envs)):
                     # if OnlineConfig.SKIP.value and i in skipNum:
                     #     continue
+                    if trainNums[i]!=self.currentID and trainNums[i] in skipNum:
+                        continue
                     ans=envs[i].act()
                     if isinstance(ans,bool):
                         envs[i].setMODE(self.mode)
@@ -603,11 +611,11 @@ class TrainModel(object):
         if r<0:
             self.best_scores+=r
         with open(self.onlineReward,'a') as f:
-            f.write('mode: '+str(self.mode)+' '+'tras: '+str(self.predictCnts)+' tra_len: '+str(info[0])+' '+\
+            f.write(' mode: '+str(self.mode)+' '+'tras: '+str(self.predictCnts)+' tra_len: '+str(info[0])+' '+\
                     'total_correct: '+str(info[1]) +' end_correct: '+str(info[2])+'\n'+\
                     'total_reward: '+str(info[3])+' end_reward: '+str(info[4])+' ave_reward: '+str(round(info[4]/info[0] if info[0] >0 else 0,2))+'\n'+\
                     'IPA2: '+str(round(np.mean(self.onlineAcc),2))+' TOTALIPA1: '+str(round(float(np.sum(self.onlineAveAcc)/np.sum(self.onlineLen) if np.sum(self.onlineLen) >0 else 0),2))+\
-                    'onlinePRR: '+str(round(np.mean(self.traPRR),2))+'\n')
+                    ' onlinePRR: '+str(round(np.mean(self.traPRR),2))+'\n')
         self.predictCnts+=1
     
     '''
@@ -624,6 +632,7 @@ class TrainModel(object):
     def predict(self,*data):
         # eyeList,clickList,pList,mouseS,person,sceneId,length
         eyeList,clickList,lastP,state,person,scene,length,goal=data
+        self.currentID=person
         mask=UTIL.GAMMA
         if self.update:
             with modelConditioner:
