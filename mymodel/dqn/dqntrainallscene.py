@@ -133,7 +133,7 @@ class PresentsRecorder(object):
         return dp(self.recorder[index])
 
         
-def train_epoch(agent:REMAgent2, lr, epochs, batch_size,device,mode,multienvs,remBlocskNum=5,store_path=None,restrict=False,thr=False):
+def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,remBlocskNum=5,store_path=None,restrict=False):
     # random.seed(None)
     # np.random.seed(None)
     agent.online.to(device)
@@ -173,11 +173,11 @@ def train_epoch(agent:REMAgent2, lr, epochs, batch_size,device,mode,multienvs,re
     personNum=[]
     sceneNum=[]
     for scene in range(1,5):
-        if thr and scene==3:
-            continue
+        # if thr and  scene==3:
+        #     continue
         for env in multienvs:
-            # envPath=os.path.join('/home/wu_tian_ci/eyedata/seperate/',env,str(scene))
-            envPath=os.path.join('/home/wu_tian_ci/eyedatanew/23',str(scene))
+            envPath=os.path.join('/home/wu_tian_ci/eyedata/seperate/',env,str(scene))
+            # envPath=os.path.join('/home/wu_tian_ci/eyedatanew/23',str(scene))
             envs.append(DQNRNNEnv(envPath,restrict=restrict))
             envFlags.append(False)
             envPaths.append(envPath)
@@ -472,9 +472,9 @@ if __name__=='__main__':
     parser.add_argument('-batchsize',type=int,default=256)
     parser.add_argument('-restrict',type=str2bool,default=False)
     parser.add_argument('-appF',type=str2bool,default=False)
-    parser.add_argument('-appP',type=str,default='restrict2')
+    parser.add_argument('-appP',type=str,default='restrict')
+    # TRUE -> skip the scene three
     parser.add_argument('-thr',type=str2bool,default=False)
-
     args=parser.parse_args()
     # device=torch.device('cpu')
     device = torch.device(args.cuda if torch.cuda.is_available() else 'cpu')
@@ -482,7 +482,7 @@ if __name__=='__main__':
     store=UTIL.getTimeStamp()
 
     if args.preload:
-        agent.load('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231221/trainallscene/restrict2/dqnnetoffline.pt')
+        agent.load('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231220/trainallscene/0/dqnnetoffline.pt')
     # else:
     #     actor_load='/home/wu_tian_ci/drl_project/mymodel/ddpg/pretrain_data/ddpg_train/1last_move5/ActorNet.pt'
     mainPath=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/',store[0:-6],'trainallscene')
@@ -513,7 +513,7 @@ if __name__=='__main__':
         else:
             envs.append(str(i))
     print(device)
-    envs=['23']
+    # envs=['23']
     if not os.path.exists(store_path):
         os.makedirs(store_path)
     with open(os.path.join(store_path,'envsinfo.txt'),'w') as f:
@@ -522,4 +522,4 @@ if __name__=='__main__':
         if args.sup!='50':
             f.write('\n'+args.sup)
     train_epoch(agent, args.lr, args.epochs, args.batchsize,device,args.mode,store_path=store_path,multienvs=envs,\
-               remBlocskNum=args.rems,restrict=args.restrict,thr=args.thr)
+               remBlocskNum=args.rems,restrict=args.restrict)

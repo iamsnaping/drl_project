@@ -25,6 +25,7 @@ import json
 from dqnagent import *
 import csv
 import pandas as pd
+from onlineconfig import *
 
 
 #  flask 传送原始数据给 trainModel-> click_x,click_y,eye_x,eye_y,state,再由flask端进行区域划分
@@ -173,30 +174,34 @@ class PresentsRecorder(object):
 
 
 class TrainModel(object):
-
     def __init__(self) -> None:
 
         self.device=torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
-        # self.device=torch.device('cpu')
         # train 
-        self.agent=RNNAgent(device=self.device,rnn_layer=5,embed_n=128)
+        self.agent=REMAgent2(device=self.device,rnn_layer=5,embed_n=128)
 
         #predict
-        self.predictModel=RNNAgent(device=self.device,rnn_layer=5,embed_n=128)
+        self.predictModel=REMAgent2(device=self.device,rnn_layer=5,embed_n=128)
 
         # 
         self.isTraining=False
 
         self.predictCnts=1
         self.onlineAcc=[]
-        self.onlineAveAcc=[]   
+        self.onlinePRR=[]
+        self.onlineAveAcc=[]
+        # predict right rate PRR
         self.onlineLen=[]
+        self.traAcc=[]
+        self.traLen=[]
+        self.traEndAcc=[]
+        self.traPRR=[]
         # load path
         # store path
         # recorde the index of the sequence
         self.numberRecorder=0.
         timestamp=getTimeStamp()
-        self.storePath=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/dqnonline',timestamp[0:-6],'model',timestamp[-6:])
+        self.storePath=os.path.join(OnlineConfig.ONLIEN_DATA_PATH.value,timestamp[0:-6],'model',timestamp[-6:])
         if not os.path.exists(self.storePath):
             os.makedirs(self.storePath)
         self.modelSavePath=os.path.join(self.storePath,'onlineModel.pt')
@@ -207,47 +212,63 @@ class TrainModel(object):
 
         # self.dataCreater=DataCreater()
         self.stop=False
-        self.tras=DQNRNNTrajectory()
+        self.tras=DQNRNNTrajectory2()
 
         # for dataset
-        self.dataSetBuffer=ReplayBufferRNN(2**19,self.device)
+        # self.dataSetBuffer=ReplayBufferRNN2(2**19,self.device)
         # for test people data
-        self.trainBuffer=ReplayBufferRNN(2**17,self.device)
+        self.trainBuffer=ReplayBufferRNN2(2**17,self.device)
         self.batchSize=8
-        self.lr=0.03
-        self.agent.load('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231117/trainall/103611/dqnnetoffline.pt')
-        self.predictModel.load('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231117/trainall/103611/dqnnetoffline.pt')
-        self.baseStorePath='/home/wu_tian_ci/eyedatanew'
+        self.lr=OnlineConfig.LR.value
+        self.agent.load(OnlineConfig.LOAD_PATH.value)
+        self.predictModel.load(OnlineConfig.LOAD_PATH.value)
+        self.baseStorePath=OnlineConfig.EYE_DATA_PATH.value
         self.dc=DataCreater()
         self.newFileNums=0
+        self.remBlocskNum=5
+        self.sceneNum=1
 
     # multi threading
     def train(self):
         global dataRecorder
         trainer = torch.optim.Adam(lr=self.lr, params=self.agent.online.parameters())
         EPOSILON=0.02
-        loss=nn.MSELoss()
+        loss=nn.HuberLoss()
         best_scores=-np.inf
         envs=[]
         t_reward=[]
         trajectorys=[]
         pr=PresentsRecorder(20)
         t_reward_len=-1
-        for i in range(2,22):
-            if i<10:
-                envStr='0'+str(i)
-            else:
-                envStr=str(i)
-            envPath=os.path.join('/home/wu_tian_ci/eyedata/seperate/',envStr,'1')
-            envs.append(DQNRNNEnv(envPath))
-            trajectorys.append(DQNRNNTrajectory())
-        fileNum=len(os.listdir('/home/wu_tian_ci/eyedatanew/01/1'))
+        trainNums=[]
+        trainScene=[]
+        skipSize=5
+        # for scene in range(1,5):
+        #     for i in range(2,22):
+        #         if i in OnlineConfig.SKIP_LIST.value:
+        #             continue
+        #         if i<10:
+        #             envStr='0'+str(i)
+        #         else:
+        #             envStr=str(i)
+        #         trainNums.append(i)
+        #         # envPath=os.path.join(OnlineConfig.DATASET_PATH.value,envStr,OnlineConfig.SCENE.value)
+        #         envPath=os.path.join(OnlineConfig.DATASET_PATH.value,envStr,str(scene))
+        #         envs.append(DQNRNNEnv(envPath))
+        #         trajectorys.append(DQNRNNTrajectory2())
+        #         trainScene.append(scene)
+        if os.path.exists(OnlineConfig.INDIVIDUAL.value):
+            fileNum=len(os.listdir(OnlineConfig.INDIVIDUAL.value))
+        else:
+            fileNum=0
         onlineNum=int(np.ceil(fileNum/5))
-        for i in range(onlineNum):
-            envs.append(DQNRNNEnv('/home/wu_tian_ci/eyedatanew/01/1'))
-            trajectorys.append(DQNRNNTrajectory())
-            pr.addRecorder()
-            # trajectorys.append(DQNTrajectory())
+        for scene in range(1,5):
+            for i in range(onlineNum):
+                envs.append(DQNRNNEnv(os.path.join(OnlineConfig.INDIVIDUAL_NO_SCENE.value,scene)))
+                trajectorys.append(DQNRNNTrajectory2())
+                pr.addRecorder()
+                trainNums.append(OnlineConfig.PERSON.value)
+                trainScene.append(scene)
         for i in range(len(envs)):
             envs[i].load_dict()
             envs[i].get_file()
@@ -283,19 +304,25 @@ class TrainModel(object):
             endInNoAct=0
             endOutNoAct=0
             # 100
-            for steps in range(500):
+            for steps in range(200):
 
                 if self.stop:
                     with modelConditioner:
                         print('stop train')
                         modelConditioner.wait()
-                if self.newFileNums%5==0:
+                if self.newFileNums%5==0 and self.newFileNums!=0:
                     updateTimes=int(np.ceil(self.newFileNums/5))
-                    for i in range(updateTimes):
-                        envs.append(DQNRNNEnv(self.baseStorePath))
-                        envs[-1].load_dict()
-                        envs[-1].get_file()
-                        trajectorys.append(DQNRNNTrajectory())
+                    skipSize+=1
+                    for sceneNum in range(1,5):
+                        for i in range(updateTimes):
+                            envs.append(DQNRNNEnv(os.path.join(OnlineConfig.INDIVIDUAL_NO_SCENE.value,str(sceneNum))))
+                            envs[-1].load_dict()
+                            envs[-1].get_file()
+                            pr.addRecorder()
+                            trajectorys.append(DQNRNNTrajectory2())
+                            trainNums.append(OnlineConfig.PERSON.value)
+                            trainScene.append(sceneNum)
+                    
                     self.newFileNums=0
 
                 # print('train2')
@@ -304,48 +331,53 @@ class TrainModel(object):
                 indexes=[]
                 lastPList=[]
                 lengthsList=[]
-                randomList=[]
+                personList=[]
+                sceneList=[]
                 # ans -> eye click goal isEnd
-                if len(envs)>20:
-                    for i in range(len(envs)-20):
-                        randomNum=random.randint(randomLow,randomHigh)
-                        randomList.append(randomNum)
+                skipSize=np.minimum(15,skipSize)
+                skipNum=np.random.randint(low=0,high=20,size=skipSize)
                 for i in range(len(envs)):
+                    if OnlineConfig.SKIP.value and i in skipNum:
+                        continue
                     ans=envs[i].act()
                     if isinstance(ans,bool):
                         envs[i].load_dict()
+                        if i >=OnlineConfig.PERSON_ENVS.value:
+                            print(i,steps)
                         envs[i].get_file()
                         continue
                     else:
-                        # print(ans[0],len(ans[0]))
                         eye=torch.tensor(ans[0],dtype=torch.long)
                         click=torch.tensor(ans[1],dtype=torch.long).to(device)
                         lengths=torch.tensor(ans[4],dtype=torch.long)
                         if pr.flag[i]==False:
                             pr.init(i,ans[1])
                         lastP=torch.tensor(pr.getLastPresents(i),dtype=torch.long).to(device)
+                        person=torch.tensor([trainNums[i]],dtype=torch.long).to(device)
+                        scene=torch.tensor([trainScene[i]],dtype=torch.long).to(device)
                         lastPList.append(lastP)
                         eyeList.append(eye)
                         clickList.append(click)
                         lengthsList.append(lengths)
+                        personList.append(person)
+                        sceneList.append(scene)
                         # ans -> eye click goal isEnd
                         doneFlag=0
                         if ans[3]==1:
                             doneFlag=0
                         else:
                             doneFlag=1
-                        # print(ans[3])
-                        # click,eye,goal,action,mask
-                        trajectorys[i].push(click,eye,ans[2],0,doneFlag*UTIL.GAMMA,lastP,lengths)
+                        trajectorys[i].push(click,eye,ans[2],0,doneFlag*UTIL.GAMMA,lastP,lengths,person,scene)
                         indexes.append(i)
-                # print(clickList)
                 clickCat=torch.stack(clickList,dim=0).to(device)
                 lastPCat=torch.stack(lastPList,dim=0).to(device)
                 lengthStack=torch.stack(lengthsList,dim=0)
+                personStack=torch.stack(personList,dim=0).to(device).unsqueeze(1)   
+                sceneStack=torch.stack(sceneList,dim=0).to(device).unsqueeze(1)   
                 # for e in eyeList:
                 #     print(f'e {e} len {len(e)}')
                 eyeList=torch.stack(eyeList,dim=0).to(device)
-                actions=self.agent.act(clickCat,eyeList,lastPCat,lengthStack)
+                actions=self.agent.act(clickCat,eyeList,lastPCat,lengthStack,personStack,sceneStack)
                 # print(f' aaaaa {actions}')
                 for actS,index in zip(actions,indexes):
                     pr.add(index,actS)
@@ -370,42 +402,45 @@ class TrainModel(object):
                         # 11:errors
                         # 12:endInOutNoAct
                         traInfo=trajectorys[index].getInfo()
-                        if traInfo[0]>1 and index>=20:
+                        if traInfo[0]>1 and index>=OnlineConfig.PERSON_ENVS.value:
                             traLenOverOne+=traInfo[0]
                             noActionNum+=traInfo[1]
                             noActionNumWithThreshold+=traInfo[2]
-                        if index>=20:
+                        if index>=OnlineConfig.PERSON_ENVS.value:
                             lastWithNoAction+=traInfo[3]
                             totalIn+=traInfo[4]
                             totalOut+=traInfo[5]
                             endIn+=traInfo[6]
                             endOut+=int(traInfo[6])^1
-                        if index>=20:
+                        if index>=OnlineConfig.PERSON_ENVS.value:
                             rewards.append(traInfo[7])
                             endAveReward.append(traInfo[8])
                             inNoAct+=traInfo[9]
                             outNoAct+=traInfo[10]
-                        if traInfo[0]>=3 and index>=20:
+                        if traInfo[0]>=3 and index>=OnlineConfig.PERSON_ENVS.value:
                             traLenOverThree+=traInfo[0]
                             totalErrors+=traInfo[11]
                         TDZeroList=trajectorys[index].getComTraZero()
-                        if traInfo[12]!=-1 and index>=20:
+                        if traInfo[12]!=-1 and index>=OnlineConfig.PERSON_ENVS.value:
                             endInNoAct+=traInfo[12]
                             endOutNoAct+=int(traInfo[12])^1
                         
                         self.dataSetBuffer.push(TDZeroList)
-                        if index>=20:
+                        if index>=OnlineConfig.PERSON_ENVS.value:
                             self.trainBuffer.push(TDZeroList)
         
                         trajectorys[index].clear()
                 # print(f'end train {self.trainBuffer.holding} {self.dataSetBuffer.holding}')
+                
                 datasetBatchSize=int((1+(self.dataSetBuffer.getRatio()))*self.batchSize*4)
                 if self.dataSetBuffer.holding<datasetBatchSize:
                     continue
                 with bufferConditioner:
                     trainBatchSize=int((1+(self.trainBuffer.getRatio()))*self.batchSize)
-                clickList,eyeList,lastPList,lengths,actionList,rewardList,maskList,nclickList,neyeList,nlastPList,nlengths = self.dataSetBuffer.sample(datasetBatchSize)
-                clickListT,eyeListT,lastPListT,lengthsT,actionListT,rewardListT,maskListT,nclickListT,neyeListT,nlastPListT,nlengthsT = self.trainBuffer.sample(trainBatchSize)
+                if trainBatchSize*2 > self.trainBuffer.capacity and self.batchSize<256:
+                    self.batchSize*=2
+                clickList,eyeList,lastPList,lengths,person,scene,actionList,rewardList,maskList,nclickList,neyeList,nlastPList,nlengths,nperson,nscene = self.dataSetBuffer.sample(datasetBatchSize)
+                clickListT,eyeListT,lastPListT,lengthsT,personT,sceneT,actionListT,rewardListT,maskListT,nclickListT,neyeListT,nlastPListT,nlengthsT,npersonT,nsceneT = self.trainBuffer.sample(trainBatchSize)
                 clickList=torch.cat([clickList,clickListT],dim=0)
                 eyeList=torch.cat([eyeList,eyeListT],dim=0)
                 lastPList=torch.cat([lastPList,lastPListT],dim=0)
@@ -417,29 +452,46 @@ class TrainModel(object):
                 neyeList=torch.cat([neyeList,neyeListT],dim=0)
                 nlastPList=torch.cat([nlastPList,nlastPListT],dim=0)
                 nlengths=torch.cat([nlengths,nlengthsT],dim=0)
+                person=torch.cat([person,personT],dim=0)
+                nperson=torch.cat([nperson,npersonT],dim=0)
+                scene=torch.cat([scene,sceneT],dim=0)
+                nscene=torch.cat([nscene,nsceneT],dim=0)
+                
+
+                
                 
         
+                deltaP = torch.rand(self.remBlocskNum).to(device)
+                deltaP =deltaP/ deltaP.sum()
                 with torch.no_grad():
-                    onlineValues=self.agent.online(clickList,eyeList,lastPList,lengths)
+                    onlineValues=self.agent.online(clickList,eyeList,lastPList,lengths,person,scene)
+                    onlineValues=sum(onlineValues)/len(onlineValues)
                     yAction=torch.argmax(onlineValues,dim=-1,keepdim=True)
-                    targetValues=self.agent.target(nclickList,neyeList,nlastPList,nlengths)
+                    targetValues=self.agent.target(nclickList,neyeList,nlastPList,nlengths,nperson,nsceneT)
+                    for i in range(self.remBlocskNum):
+                        targetValues[i]=targetValues[i]*deltaP[i]
+                    targetValues=sum(targetValues)
                     y=targetValues.gather(dim=-1,index=yAction)*maskList+rewardList
-                values=self.agent.online(clickList,eyeList,lastPList,lengths).gather(dim=-1,index=actionList)
+                values=self.agent.online(clickList,eyeList,lastPList,lengths,person,scene)
+                for i in range(self.remBlocskNum):
+                    values[i]=values[i]*deltaP[i]
+                values=sum(values)
+                values=values.gather(dim=-1,index=actionList)
                 l = loss(values, y)
                 trainer.zero_grad()
                 l.backward()
                 trainer.step()
-                if  steps%5==0 and steps!=0:
+                if steps%10==0 and steps!=0:
                     self.agent.update()
 
             t_reward_len+=1
-            if t_reward_len>=100:
-                t_reward_len%=100
+            if t_reward_len>=10:
+                t_reward_len%=10
                 t_reward[t_reward_len]=np.mean(rewards)
             else:
                 t_reward.append(np.mean(rewards))
 
-            if len(t_reward)>5 and np.mean(t_reward)>best_scores:
+            if len(t_reward)>4 and np.mean(t_reward)>best_scores:
                 print('save')
                 with modelConditioner:
                     torch.save(self.agent.target.state_dict(), self.modelSavePath)
@@ -448,13 +500,9 @@ class TrainModel(object):
                 with open(self.updateModel,'a',encoding='UTF-8') as updateModel:
                     updateModel.write('eposides:'+str(K+1)+' ave_eposides_rewards:'+str(round(np.mean(t_reward),2))+\
                     ' ave reward '+str(round(t_reward[-1],2)) +'\n'+\
-                    ' end_in: '+str(endIn)+' end_out: '+str(endOut)+' train_end_acc: '+str(round(endIn/(endOut+endIn),2))+\
-                    ' end_in_no_action: '+str(endInNoAct)+' end_out_no_act: '+str(endOutNoAct)+' acc:'+str(round(endInNoAct/(endInNoAct+endOutNoAct),2))+'\n'+\
-                    ' in: '+str(totalIn)+' _out:'+str(totalOut)+' train_ave_acc:'+str(round(totalIn/(totalIn+totalOut),2))+\
-                    ' in_no_act:'+str(inNoAct)+' out_no_act:'+str(outNoAct)+' acc:'+str(round(inNoAct/(inNoAct+outNoAct),2))+'\n'+\
-                    ' len_tra_over_one: '+str(traLenOverOne)+' no_action_num:'+str(noActionNum)+' no_action_num_80:'+str(noActionNumWithThreshold)+\
-                    ' acc:'+str(round(noActionNum/traLenOverOne,2))+' acc2:'+str(round(noActionNumWithThreshold/traLenOverOne,2))+'\n'+\
-                    ' len_tra_over_three: '+str(traLenOverThree)+' total_errors: '+str(totalErrors)+' acc: '+str(round(totalErrors/traLenOverThree,2))+'\n')
+                    ' end_in: '+str(endIn)+' end_out: '+str(endOut)+' IPA2: '+str(round(endIn/(endOut+endIn),2))+\
+                    ' end_in_no_action: '+str(endInNoAct)+' end_out_no_act: '+str(endOutNoAct)+' IPA2_NOACTION:'+str(round(endInNoAct/(endInNoAct+endOutNoAct),2))+'\n'+\
+                    ' in: '+str(totalIn)+' _out:'+str(totalOut)+' IPA1:'+str(round(totalIn/(totalIn+totalOut),2))+'\n')
             #     with open(updataInfo,'a',encoding='UTF-8') as updateInfoFile:
             #         updateInfoFile.write('eposides:'+str(K+1)+' ave_eposides_rewards:'+str(round(np.mean(t_reward),2))+\
             #         ' ave reward '+str(round(t_reward[-1],2)) +'\n'+\
@@ -470,40 +518,64 @@ class TrainModel(object):
             with open(self.rewardPath,'a',encoding='UTF-8') as rewardFile:
                 rewardFile.write('eposides:'+str(K+1)+' ave_eposides_rewards:'+str(round(np.mean(t_reward),2))+\
                 ' ave reward '+str(round(t_reward[-1],2)) +'\n'+\
-                ' end_in: '+str(endIn)+' end_out: '+str(endOut)+' train_end_acc: '+str(round(endIn/(endOut+endIn),2))+\
-                ' end_in_no_action: '+str(endInNoAct)+' end_out_no_act: '+str(endOutNoAct)+' acc:'+str(round(endInNoAct/(endInNoAct+endOutNoAct),2))+'\n'+\
-                ' in: '+str(totalIn)+' _out:'+str(totalOut)+' train_ave_acc:'+str(round(totalIn/(totalIn+totalOut),2))+\
-                ' in_no_act:'+str(inNoAct)+' out_no_act:'+str(outNoAct)+' acc:'+str(round(inNoAct/(inNoAct+outNoAct),2))+'\n'+\
-                ' len_tra_over_one: '+str(traLenOverOne)+' no_action_num:'+str(noActionNum)+' no_action_num_80:'+str(noActionNumWithThreshold)+\
-                ' acc:'+str(round(noActionNum/traLenOverOne,2))+' acc2:'+str(round(noActionNumWithThreshold/traLenOverOne,2))+'\n'+\
-                ' len_tra_over_three: '+str(traLenOverThree)+' total_errors: '+str(totalErrors)+' acc: '+str(round(totalErrors/traLenOverThree,2))+'\n')
+                ' end_in: '+str(endIn)+' end_out: '+str(endOut)+' IPA2: '+str(round(endIn/(endOut+endIn),2))+\
+                ' end_in_no_action: '+str(endInNoAct)+' end_out_no_act: '+str(endOutNoAct)+' IPA2_NOACTION:'+str(round(endInNoAct/(endInNoAct+endOutNoAct),2))+'\n'+\
+                ' in: '+str(totalIn)+' _out:'+str(totalOut)+' IPA1:'+str(round(totalIn/(totalIn+totalOut),2))+'\n')
+    
 
+    def getAveTraAcc(self):
+        aveAcc='file_IPA1: '+str(round(np.sum(self.traAcc)/np.sum(self.traLen),2))+' file_IPA2: '+str(round(np.mean(self.traEndAcc),2))+' file_PRR: '+str(round(np.mean(self.traPRR),2))
+        return aveAcc
+
+    def traAccClear(self):
+        self.traAcc=[]
+        self.traLen=[]
+        self.traEndAcc=[]
+        self.traPRR=[]
 
     def writeReward(self):
         info=self.tras.getInfo2()
         # print(info)
         # len(self.tras),totalCorrect,endCorrect,totalReward,endReward
-        if len(self.onlineAveAcc)<100:
+        if len(self.onlineAveAcc)<1000:
             self.onlineAcc.append(info[2])
             self.onlineAveAcc.append(info[1])
             self.onlineLen.append(info[0])
+            self.onlinePRR.append(info[5])
         else:
-            self.onlineAcc[self.predictCnts%100]=info[2]
-            self.onlineAveAcc[self.predictCnts%100]=info[1]
-            self.onlineLen[self.predictCnts%100]=info[0]
+            self.onlineAcc[self.predictCnts%1000]=info[2]
+            self.onlineAveAcc[self.predictCnts%1000]=info[1]
+            self.onlineLen[self.predictCnts%1000]=info[0]
+            self.onlinePRR[self.predictCnts%1000]=info[5]
+        self.traAcc.append(info[1])
+        self.traEndAcc.append(info[2])
+        self.traLen.append(info[0])
+        self.traPRR.append(info[5])
         with open(self.onlineReward,'a') as f:
             f.write('tras: '+str(self.predictCnts)+' tra_len: '+str(info[0])+' '+\
-                    'total_correct: '+str(info[1]) +' end_correct: '+str(info[2])+' ratio'+str(round(info[1]/info[0],2))+'\n'+\
-                    'total_reward: '+str(info[3])+' end_reward: '+str(info[4])+' ave_reward:'+str(round(info[4]/info[0],2))+'\n'+\
-                    'end_acc: '+str(round(float(np.sum(self.onlineAcc))/len(self.onlineAcc),2))+' ave_acc: '+str(round(float(np.sum(self.onlineAveAcc)/np.sum(self.onlineLen)),2))+'\n')
+                    'total_correct: '+str(info[1]) +' end_correct: '+str(info[2])+'\n'+\
+                    'total_reward: '+str(info[3])+' end_reward: '+str(info[4])+' ave_reward: '+str(round(info[4]/info[0],2))+'\n'+\
+                    'IPA2: '+str(round(np.mean(self.onlineAcc),2))+' TOTALIPA1: '+str(round(float(np.sum(self.onlineAveAcc)/np.sum(self.onlineLen)),2))+\
+                    'onlinePRR: '+str(round(np.mean(self.traPRR),2))+'\n')
         self.predictCnts+=1
-
+    
+    '''
+    name:snapping
+    TODO:write txt into file->self.onlineReward
+    time:2023.11.23
+    params:writeTxt write content
+    return: None
+    '''
+    def writeTxt(self,writeTxt='\n'):
+        with open(self.onlineReward,'a') as f:
+            f.write(writeTxt)
 
     def predict(self,*data):
-        clickList,eyeList,length,lastP,clickRegion,state=data
+        clickList,eyeList,length,lastP,clickRegion,state,person,scene=data
         mask=UTIL.GAMMA
         if self.update:
             with modelConditioner:
+                print('used the update')
                 self.predictModel.load(self.modelSavePath)
                 self.update=False
 
@@ -512,23 +584,26 @@ class TrainModel(object):
         eyeTensor=torch.tensor([eyeList],dtype=torch.long).unsqueeze(0).to(self.device)
         lenTensor=torch.tensor([length],dtype=torch.long)
         pTensor=torch.tensor([lastP],dtype=torch.long).unsqueeze(0).to(self.device)
-        ans=int(self.predictModel.act(clickTensor,eyeTensor,pTensor,lenTensor))
+        personTensor=torch.tensor([[[person]]],dtype=torch.long).to(self.device)
+        sceneTensor=torch.tensor([[[scene]]],dtype=torch.long).to(self.device)
+        ans=int(self.predictModel.act(clickTensor,eyeTensor,pTensor,lenTensor,personTensor,sceneTensor))
         # click,eye,goal,action,mask
-        print(f'predict {int(ans)}')
         mask=UTIL.GAMMA
         if state==0:
+            mask=0
+        self.tras.push(clickTensor.squeeze(),eyeTensor.squeeze(),0,ans,mask,pTensor.squeeze(),lenTensor.squeeze(),personTensor.squeeze(0).squeeze(0),sceneTensor.squeeze(0).squeeze(0))
+        if state==0:
+            print(f'add')
             self.tras.setGoal(clickRegion)
             self.numberRecorder=0
             self.tras.getNewTras()
             TDZeroList=self.tras.getComTraZero()
-            # print(TDZeroList)
             with bufferConditioner:
                 self.trainBuffer.push(TDZeroList)
             self.writeReward()
             self.tras.clear()
             self.dc.refreshTra()
             mask=0
-        self.tras.push(clickTensor.squeeze(),eyeTensor.squeeze(),0,ans,mask,pTensor.squeeze(),lenTensor.squeeze())
         return ans,'success'
 
 model=TrainModel()
@@ -547,31 +622,43 @@ def getResponse(flag=True,message='success',data=True):
     return responseDict
 
 
-@app.route('/sendFile',methods=['post','get'])
-def saveFile():
-    print('send')
-    global model
-    data=request.files.get('file')
-    fileName=request.files.get('fileName')
-    storePath='/home/wu_tian_ci/eyedatanew'
-    data.save(os.path.join(storePath,fileName))
-    responseDict=getResponse()
-    responseJson=json.dumps(responseDict)
-    response=make_response(responseJson)
-    model.newFileNums+=1
-    return response
+# @app.route('/sendFile',methods=['post','get'])
+# def saveFile():
+#     print('send')
+#     global model
+#     data=request.files.get('file')
+#     fileName=request.files.get('fileName')
+#     data.save(os.path.join(OnlineConfig.EYE_DATA_PATH.value,fileName))
+#     model.dc.refresh()
+#     writeTxt=model.getAveTraAcc()
+#     model.writeTxt(writeTxt)
+#     print(f'this is txt {writeTxt}')
+#     model.traAccClear()
+#     model.writeTxt('\nend\n\n')
+#     responseDict=getResponse()
+#     responseJson=json.dumps(responseDict)
+#     response=make_response(responseJson)
+#     model.newFileNums+=1
+#     return response
 
 
 @app.route('/sendData',methods=['post','get'])
 def sendData():
+    global model
     print('send')
+    model.dc.refresh()
+    writeTxt=model.getAveTraAcc()
+    model.writeTxt(writeTxt)
+    print(f'this is txt {writeTxt}')
+    model.traAccClear()
+    model.writeTxt('\nend\n\n')
     resp=request.get_json()
     fileName=resp.get('fileName')
     dataList=resp.get('dataList')
     peopleNum=resp.get('peopleNum')
     sceneNum=resp.get('sceneNum')
-    storePath='/home/wu_tian_ci/eyedatanew'
-    savePath=os.path.join(storePath,peopleNum,sceneNum)
+    model.sceneNum=sceneNum
+    savePath=os.path.join(str(OnlineConfig.EYE_DATA_PATH.value),str(peopleNum),str(sceneNum))
     if not os.path.exists(savePath):
         os.makedirs(savePath)
     savePath=os.path.join(savePath,fileName)
@@ -579,7 +666,8 @@ def sendData():
     df.to_csv(savePath,header=None,index=False)
     responseDict=getResponse()
     responseJson=json.dumps(responseDict)
-    response=make_response(responseJson)
+    response=make_response(responseJson)    
+    model.newFileNums+=1
     return response
     
 
@@ -637,7 +725,7 @@ def getPredict():
     global model,STOP_TRAIN_FLAG
     resp=request.get_json()
     responseDict=getResponse()
-    clickRegion,eyeRegion,mouseS=resp.get('clickRegion'),resp.get('eyeRegion'),resp.get('mouseS')
+    clickRegion,eyeRegion,mouseS,person,sceneID=resp.get('clickRegion'),resp.get('eyeRegion'),resp.get('mouseS'),resp.get('person'),resp.get('scene')
     eyeAns=model.dc.addEye(eyeRegion)
     clickAns=model.dc.addClick(clickRegion)
     if clickAns[0]==False:
@@ -647,10 +735,10 @@ def getPredict():
     else:
         # clickList,eyeList,length,lastP,clickRegion,statefg
         lastP=model.dc.getP()
-        ans=model.predict(clickAns[1],eyeAns[0],eyeAns[1],lastP,clickRegion,mouseS)
-        responseDict['data']=ans[1]
+        ans=model.predict(clickAns[1],eyeAns[0],eyeAns[1],lastP,clickRegion,mouseS,person,sceneID)
+        responseDict['data']=ans[0]
         responseDict['flag']=True
-        responseDict['message']=ans[0]
+        responseDict['message']=ans[1]
     responseJson=json.dumps(responseDict)
     response=make_response(responseJson)
     return response

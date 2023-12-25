@@ -94,6 +94,7 @@ class RNNAgent(object):
 class REMAgent(object):
     def __init__(self,device,embed_n=64,rnn_layer=10,networksNum=5) -> None:
         # device,embed_n=64,rnn_layer=10
+
         self.target=REMNet(embed_n=embed_n,rnn_layer=rnn_layer,device=device,remBlocskNum=networksNum)
         self.online=REMNet(embed_n=embed_n,rnn_layer=rnn_layer,device=device,remBlocskNum=networksNum)
         self.target.apply(weight_init).to(device)
@@ -111,11 +112,57 @@ class REMAgent(object):
         self.target.load_state_dict(self.online.state_dict())
     
 
-    def act(self,click,eye,clickP,lengths):
-        actions=self.online(click,eye,clickP,lengths)
+    def act(self,click,eye,clickP,lengths,person):
+        actions=self.online(click,eye,clickP,lengths,person)
         actions=sum(actions)/len(actions)
         maxAction=torch.argmax(actions,dim=-1)
         action=maxAction.squeeze().cpu().detach().numpy()
         return action
+    
+    def eval(self):
+        self.target.eval()
+        self.online.eval()
+    
+    def train(self):
+        self.target.train()
+        self.online.train()
+
+     
+class REMAgent2(object):
+    def __init__(self,device,embed_n=128,rnn_layer=5,networksNum=5,idFlag=True) -> None:
+        # device,embed_n=64,rnn_layer=10
+
+        self.target=REMNet2(embed_n=embed_n,rnn_layer=rnn_layer,device=device,remBlocskNum=networksNum,idFlag=idFlag)
+        self.online=REMNet2(embed_n=embed_n,rnn_layer=rnn_layer,device=device,remBlocskNum=networksNum,idFlag=idFlag)
+        self.target.apply(weight_init).to(device)
+        self.online.apply(weight_init).to(device)
+        self.device=device
+
+    
+    def load(self,loadPath):
+        self.target.load_state_dict(torch.load(loadPath))
+        self.online.load_state_dict(torch.load(loadPath))
+        self.target.to(self.device)
+        self.online.to(self.device)
+
+    def update(self):
+        self.target.load_state_dict(self.online.state_dict())
+    
+
+    def act(self,click,eye,clickP,lengths,person,scene):
+        # print(click,eye,clickP,lengths,person,scene)
+        actions=self.online(click,eye,clickP,lengths,person,scene)
+        actions=sum(actions)/len(actions)
+        maxAction=torch.argmax(actions,dim=-1)
+        action=maxAction.squeeze().cpu().detach().numpy()
+        return action
+    
+    def eval(self):
+        self.target.eval()
+        self.online.eval()
+    
+    def train(self):
+        self.target.train()
+        self.online.train()
 
  

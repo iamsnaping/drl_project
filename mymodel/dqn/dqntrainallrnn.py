@@ -143,7 +143,7 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,rem
     EPOSILON_END=0.02
     # ebuffer=ExampleBuffer(2**17)
     trainer = torch.optim.Adam(lr=lr, params=agent.online.parameters())
-    loss=nn.MSELoss()
+    loss=nn.HuberLoss()
     agentBuffer=ReplayBufferRNN(2**17,device)
     if not os.path.exists(store_path):
         os.makedirs(store_path)
@@ -170,12 +170,14 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,rem
     envFlags=[]
     envPaths=[]
     trajectorys=[]
+    personNum=[]
     for env in multienvs:
         envPath=os.path.join('/home/wu_tian_ci/eyedata/seperate/',env,'1')
         envs.append(DQNRNNEnv(envPath))
         envFlags.append(False)
         envPaths.append(envPath)
         trajectorys.append(DQNRNNTrajectory())
+        personNum.append(float(env))
     trajectorys.append(DQNRNNTrajectory())
     for i in range(len(envs)):
         envs[i].load_dict()
@@ -219,6 +221,7 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,rem
             indexes=[]
             lastPList=[]
             lengthsList=[]
+            personList=[]
             # ans -> eye click goal isEnd length
             for i in range(len(envs)):
                 ans=envs[i].act()
@@ -230,15 +233,17 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,rem
                 else:
                     # print(ans[0],len(ans[0]))
                     eye=torch.tensor(ans[0],dtype=torch.long)
-                    click=torch.tensor([ans[1]],dtype=torch.long).to(device)
+                    click=torch.tensor(ans[1],dtype=torch.long).to(device)
                     lengths=torch.tensor(ans[4],dtype=torch.long)
+                    person=torch.tensor([personNum[i]],dtype=torch.float32).to(device)
                     if pr.flag[i]==False:
                         pr.init(i,ans[1])
-                    lastP=torch.tensor([pr.getLastPresents(i)],dtype=torch.long).to(device)
+                    lastP=torch.tensor(pr.getLastPresents(i),dtype=torch.long).to(device)
                     lastPList.append(lastP)
                     eyeList.append(eye)
                     clickList.append(click)
                     lengthsList.append(lengths)
+                    personList.append(person)
                     # ans -> eye click goal isEnd
                     doneFlag=0
                     if ans[3]==1:
@@ -247,18 +252,18 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,rem
                         doneFlag=1
                     # print(ans[3])
                     # click,eye,goal,action,mask
-                    trajectorys[i].push(click,eye,ans[2],0,doneFlag*UTIL.GAMMA,lastP,lengths)
+                    # print(lengths)
+                    trajectorys[i].push(click,eye,ans[2],0,doneFlag*UTIL.GAMMA,lastP,lengths,person)
                     indexes.append(i)
                     if ans[3]==1:
                         beginFlags[i]=True
             # print(clickList)
-            clickCat=torch.cat(clickList,dim=0).to(device)
-            lastPCat=torch.cat(lastPList,dim=0).to(device)
+            clickCat=torch.stack(clickList,dim=0).to(device)
+            lastPCat=torch.stack(lastPList,dim=0).to(device)
             lengthStack=torch.stack(lengthsList,dim=0)
-            # for e in eyeList:
-            #     print(f'e {e} len {len(e)}')
+            personStack=torch.stack(personList,dim=0).to(device).unsqueeze(1)            
             eyeList=torch.stack(eyeList,dim=0).to(device)
-            actions=agent.act(clickCat,eyeList,lastPCat,lengthStack)
+            actions=agent.act(clickCat,eyeList,lastPCat,lengthStack,personStack)
             # print(f' aaaaa {actions}')
             for actS,index in zip(actions,indexes):
                 pr.add(index,actS)
@@ -315,27 +320,22 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,rem
                     with open(reward_path,'a') as f:
                         f.write('begin to train\n')
                     is_training=True
-                clickList,eyeList,lastPList,lengths,actionList,rewardList,maskList,nclickList,neyeList,nlastPList,nlengths= agentBuffer.sample(dbatch_size)
+                clickList,eyeList,lastPList,lengths,person,actionList,rewardList,maskList,nclickList,neyeList,nlastPList,nlengths,nperson= agentBuffer.sample(dbatch_size)
                 deltaP = torch.rand(remBlocskNum).to(device)
                 deltaP =deltaP/ deltaP.sum()
-                # deltaP.requires_grad=True
                 with torch.no_grad():
-                    onlineValues=agent.online(clickList,eyeList,lastPList,lengths)
+                    onlineValues=agent.online(clickList,eyeList,lastPList,lengths,person)
                     onlineValues=sum(onlineValues)/len(onlineValues)
                     yAction=torch.argmax(onlineValues,dim=-1,keepdim=True)
-                    targetValues=agent.target(nclickList,neyeList,nlastPList,nlengths)
-                    # targetValues=targetValues[0]*deltaP[0]+targetValues[1]*deltaP[1]+targetValues[2]*deltaP[2]+targetValues[3]*deltaP[3]+targetValues[4]*deltaP[4]
+                    targetValues=agent.target(nclickList,neyeList,nlastPList,nlengths,nperson)
                     for i in range(remBlocskNum):
                         targetValues[i]=targetValues[i]*deltaP[i]
                     targetValues=sum(targetValues)
-                    # targetValues=sum(targetValues)/len(targetValues)
                     y=targetValues.gather(dim=-1,index=yAction)*maskList+rewardList
-                values=agent.online(clickList,eyeList,lastPList,lengths)
+                values=agent.online(clickList,eyeList,lastPList,lengths,person)
                 for i in range(remBlocskNum):
                     values[i]=values[i]*deltaP[i]
                 values=sum(values)
-                # values=values[0]*deltaP[0]+values[1]*deltaP[1]+values[2]*deltaP[2]+values[3]*deltaP[3]+values[4]*deltaP[4]
-                # values=sum(values)/len(values)
                 values=values.gather(dim=-1,index=actionList)
                 l = loss(values, y)
                 # if steps%100==0:
@@ -416,9 +416,10 @@ if __name__=='__main__':
     parser.add_argument('-sup',type=str,default='50')
     parser.add_argument('-preload',type=bool,default=False)
     parser.add_argument('-lr',type=float,default=0.0005)
-    parser.add_argument('-layers',type=int,default=3)
+    parser.add_argument('-layers',type=int,default=5)
     parser.add_argument('-embed',type=int,default=128)
     parser.add_argument('-rems',type=int,default=5)
+    parser.add_argument('-epochs',type=int,default=500)
 
     args=parser.parse_args()
     # device=torch.device('cpu')
@@ -446,6 +447,7 @@ if __name__=='__main__':
     print(args.sup)
     print(store[-6:])
     envs=[]
+    exclude=[7,12,13]
     for i in range(2,22):
         if i<10:
             envs.append('0'+str(i))
@@ -465,8 +467,8 @@ if __name__=='__main__':
         os.makedirs(store_path)
     with open(os.path.join(store_path,'envsinfo.txt'),'w') as f:
         f.write('envs'+str(envs)+'\n trainEnvs:'+str(envs)+'\n'+' lr:'+str(args.lr)+' preload: '+str(args.preload)+' device:'+str(device)\
-                +' layers: '+str(args.layers)+" embded: "+str(args.embed)+' rems'+str(args.rems))
+                +' layers: '+str(args.layers)+" embded: "+str(args.embed)+' rems'+str(args.rems)+'\nexclude: '+str(exclude))
         if args.sup!='50':
             f.write('\n'+args.sup)
-    train_epoch(agent, args.lr, 500, 256,device,args.mode,store_path=store_path,multienvs=envs,\
+    train_epoch(agent, args.lr, args.epochs, 256,device,args.mode,store_path=store_path,multienvs=envs,\
                 json_path=json_path,value_path=value_path,critic_loss_path=critic_loss_path,remBlocskNum=args.rems)
