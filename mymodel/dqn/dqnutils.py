@@ -12,8 +12,11 @@ import collections
 import pandas as pd
 
 from copy import deepcopy as dp
+from dqnenv import *
+from dqnagent import *
 
 GAMMA=0.96
+
 class DQNReward(object):
 
     def __init__(self) -> None:
@@ -830,6 +833,8 @@ class DQNRNNTrajectory2(object):
     def setGoal(self,goal):
         for tra in self.tras:
             tra[2]=goal
+    def setMask(self,index,mask):
+        self.tras[index][4]=mask
     
     # after get new tras
     '''
@@ -941,72 +946,392 @@ class DQNRNNTrajectory2(object):
     #         print('')
 
 
-class DataTally(object):
-    def __init__(self):
-        ...
+class DataCollector(object):
+    #所有指针都指向下一个元素
+    def __init__(self,base_path,num=0,scene=0,MODE=1,restrict=False):
+        self.env=DQNRNNEnv(base_path=base_path,restrict=restrict)
+        self.num=num
+        self.scene=scene
+        self.file_finish = False
+        self.files_len=0
+        self.df=None
+        self.current_file=-1
+        self.cfile_len=0
+        self.last_goal_list=[]
+        self.goal=[0.,0.]
 
+        self.MODE=MODE
+
+        self.lastEye=-1
+ 
+        self.goal_nums=0
+        self.states_idx=0
+        self.states_len=0
+        self.files_path=[]
+        self.base_path=base_path
+        self.begin_idx=0
+        self.end_idx=0
+        # data
+        self.saveDistance=[]
+        self.curve=[]
+        self.straight=[]
+        self.movingTime=[]
+        self.groundTruth=[]
+
+        self.restrict=restrict
+        self.restrictArea=[0 ,1, 2 ,3 ,6, 9]
+
+        self.clickRegion=Region('click')
+        self.eyeRegion=Region('eye')
+        self.clickRegion.setRegions(CLICKAREAS)
+        self.eyeRegion.setRegions(EYEAREAS)
+
+        # 1-> origin  2-> not origin
     
-    # timeStamp, eyeX, eyeY, mouseX, mouseY, mouseS,predictX,predictY
-    def tallyList(self,dataList):
-        totalTime=0
-        totalMove=0
-        moveTimes=0
-        lastX,lastY=-1,-1
-        predictFlag=False
-        for i in range(1,len(dataList)):
-            x,y=int(dataList[i][3]),int(dataList[y])
-            if x!=dataList[i-1][3] or y!=dataList[i-1][4]:
-                if predictFlag:
-                    if lastX!=x or lastY!=y:
-                        moveTimes+=1
-                        totalMove+=np.sqrt((x-lastX)**2+(y-lastY)**2)
-                else:
-                    moveTimes+=1
-                    totalMove+=np.sqrt((x-dataList[i-1][3])**2+(y-dataList[i-1][4])**2)
-                    totalTime+=dataList[i][0]-dataList[i-1][0]
-            predictFlag=False
-            if dataList[i][-1]!=0 and dataList[i][-2]!=0:
-                lastX,lastY=dataList[i][-2],dataList[i][-1]
-                predictFlag=True
-
-        return totalTime,totalMove,moveTimes
-
-
-
     
-    def tallyCSV(self,csvFilePath):
-        df=pd.read_csv(csvFilePath,header=None)
-        fileLen=len(df)
-        totalTime=0
-        totalMove=0
-        moveTimes=0
-        lastX,lastY=-1,-1
-        predictFlag=False
-        for i in range(1,fileLen):
+    def setMODE(self,MODE):
+        self.MODE=MODE
+
+
+    def load_dict(self):
+        dirs=os.listdir(self.base_path)
+        for dir in dirs:
+            if dir[-6]=='_':
+                if dir[-5]==str(self.MODE):
+                    self.files_path.append(os.path.join(self.base_path,dir))
+            else:
+                self.files_path.append(os.path.join(self.base_path,dir))
+       
+        self.current_dir_len=len(self.files_path)
+        self.saveDistance=[0 for i in range(self.current_dir_len)]
+        self.curve=[0 for i in range(self.current_dir_len)]
+        self.straight=[0 for i in range(self.current_dir_len)]
+        self.movingTime=[0 for i in range(self.current_dir_len)]
+        self.groundTruth=[0 for i in range(self.current_dir_len)]
+
+
+    def get_file(self, appoint_path=None):
+        if appoint_path is not None:
+            self.df=pd.read_csv(self.files_path[self.current_file],header=None)
+            return True
+        self.current_file += 1
+        if self.current_file >= self.current_dir_len:
+            self.finish = True
+            return False
+        self.df=pd.read_csv(self.files_path[self.current_file],header=None)
+        self.round_refresh()
+        self.cfile_len = len(self.df)
+        return True
+
+    def round_refresh(self):
+        self.file_finish = False
+        self.files_len=0
+        self.cfile_len=0
+        self.last_goal_list=[]
+        self.goal=[0.,0.]
+        self.goal_nums=0
+
+        self.states_idx=0
+        self.states_len=0
+        self.begin_idx=0
+        self.end_idx=0
+
+        self.lengths=[]
+        self.lastEye=-1
+    
+    def refresh(self):
+        self.file_finish = False
+        self.files_len=0
+        self.df=None
+        self.current_file=-1
+        self.cfile_len=0
+        self.last_goal_list=[]
+        self.goal=0.
+
+        self.goal_nums=0
+        self.next_state=[]
+        self.files_path=[]
+        self.states_idx=0
+        self.states_len=0
+        self.begin_idx=0
+        self.end_idx=0
+
+        self.lastEye=-1
+        self.lengths=[]
+
+    def get_goal(self):
+        flag=-1
+        goalFlag=False
+        self.cfile_len=len(self.df)
+        if self.goal_nums>0:
+            t=self.goal_nums-1
+            while t>0:
+                # print(t,self.cfile_len)
+                row=self.df.iloc[t]
+                if np.isnan(row[5]) or np.isnan(row[1]) or np.isnan(row[2]) or np.isnan(row[3]) or np.isnan(row[4]):
+                    t-=1
+                flag=row[5]
+                if flag==0:
+                    self.beginPoint=[row[3]*1.25,row[4]*1.25]
+                    break
+                t-=1
+
+        while self.goal_nums<self.cfile_len:
+            row=self.df.iloc[self.goal_nums]
+            if np.isnan(row[5]) or np.isnan(row[1]) or np.isnan(row[2]) or np.isnan(row[3]) or np.isnan(row[4]):
+                self.goal_nums+=1
+                continue  
+            flag=row[5]
+            if flag==0:
+                goalFlag=True
+                self.goal=self.clickRegion.judge(row[3]*1.25,row[4]*1.25)
+                self.endPoint=[row[3]*1.25,row[4]*1.25]
+                break
+            self.goal_nums+=1
+        while flag ==0 and self.goal_nums<self.cfile_len:
+            row=self.df.iloc[self.goal_nums]
+            if np.isnan(row[5]) or np.isnan(row[1]) or np.isnan(row[2]) or np.isnan(row[3]) or np.isnan(row[4]):
+                break
+            flag=int(row[5])
+            if flag !=0:
+                break
+            self.goal=self.clickRegion.judge(row[3]*1.25,row[4]*1.25)            
+            self.goal_nums+=1
+        if self.goal_nums>=self.cfile_len-1:
+            if not goalFlag:
+                self.file_finish=True
+    
+    def get_1round(self):
+        t=0
+        endFlag=False
+        while len(self.last_goal_list)<3:
+            self.get_goal()
+            self.last_goal_list.append(self.goal)
+
+        self.get_goal()
+        if self.end_idx!=0:
+            self.begin_idx=self.end_idx
+        self.end_idx=self.goal_nums
+        predictX,predictY=-1,-1
+        lastX,lastY=int(self.last_goal_list[-1][0]),int(self.last_goal_list[-1][1])
+        lastTime=-1
+        for i in range(self.begin_idx,self.end_idx):
             row=self.df.iloc[i]
-            x,y=int(row[3]),int(row[4])
-            if x!=df.iloc[i-1][3] or y!=df.iloc[i-1][4]:
-                if predictFlag:
-                    if lastX!=x or lastY!=y:
-                        moveTimes+=1
-                        totalMove+=np.sqrt((x-lastX)**2+(y-lastY)**2)
+            if len(row)<5:
+                continue
+            if np.isnan(row[5]) or np.isnan(row[1]) or np.isnan(row[2]) or np.isnan(row[3]) or np.isnan(row[4]):
+                continue
+            if lastTime==-1:
+                lastTime=row[0]
+            if int(row[8])==1:
+                predictX,predictY=int(row[6]),int(row[7])
+
+            if lastX!=int(row[3]) or lastY!=int(row[4]):                
+                if predictX!=int(row[3]) or predictY!=int(row[4]):
+                    self.movingTime[self.current_file]+=row[0]-lastTime
+                    self.curve[self.current_file]+=np.sqrt((lastX-row[3])**2+(lastY-row[4])**2)
+            lastTime=row[0]
+            lastX,lastY=int(row[3]),int(row[4])
+            if (i==self.end_idx-1) and (self.end_idx>=self.cfile_len-5):
+                endFlag=True
+                break
+        lastGoal=self.last_goal_list[-1]
+
+        if predictX!=-1 and predictY!=-1:
+            originDistance=np.sqrt((lastGoal[0]-self.goal[0])**2+(lastGoal[1]-self.goal[1])**2)
+            movingDistance=np.sqrt((self.goal[0]-predictX)**2+(self.goal[1]-predictY)**2)
+            self.saveDistance[self.current_file-1]+=originDistance-movingDistance
+            self.groundTruth[self.current_file-1]+=originDistance
+        self.last_goal_list.append(self.goal)
+        if self.end_idx>=self.cfile_len or endFlag:
+            self.file_finish=True
+        self.states_idx=0
+   
+    def tallySaving(self):
+        self.load_dict()
+        flag=self.get_file()
+        if flag==False:
+            print('error')
+            return False,'error'
+        while flag:
+            self.get_1round()
+            if self.file_finish:
+                flag=self.get_file()
+        ansList=[]
+        for f,curve,dis,mt,gt in zip(self.files_path,self.curve,self.saveDistance,self.movingTime,self.groundTruth):
+            ansList.append([f,dis,curve,mt,dis/gt,gt])
+        ansList=sorted(ansList,key= lambda x :x[0])
+        return ansList
+    
+    def get3Goal(self):
+        k=0
+        goalList=[]
+        self.goal_nums=0
+        while len(goalList)<3 and (not self.file_finish):
+                self.get_goal()
+                if (len(goalList)==0 or goalList[-1]!=self.goal) and (not self.file_finish):
+                    # print(self.goal,self.cfile_len,self.goal_nums,self.files_path[self.current_file])
+                    if (self.goal in self.restrictArea):
+                        self.begin_idx=self.goal_nums
+                        if self.restrict:
+                            continue
+                        else:
+                            goalList.append(self.goal)        
+                    else:
+                        goalList.append(self.goal)
+                
+        # row=self.df.iloc[self.goal_nums]
+        # # print(row[3]*1.25,row[4]*1.25)
+        return self.goal_nums
+
+
+
+    def tallyOffLineCurveAndStraightLineAndMovingTime(self):
+        # self.load_dict()
+        # self.get_file()
+        straight=[0 for i in range(self.current_dir_len)]
+        movingTime=[0 for i in range(self.current_dir_len)]
+        curve=[0 for i in range(self.current_dir_len)]
+        for i in range(self.current_dir_len):
+            lastTime=0
+            self.df=pd.read_csv(self.files_path[i],header=None)
+            df=pd.read_csv(self.files_path[i],header=None)
+            fileLen=len(df)
+            # it is click coordinate
+            lastClickX,lastClickY=-1,-1
+            lastX,lastY=-1,-1
+            # tally data when this flag decrease to zero
+            self.goal_nums=0
+            beginIndex=self.get3Goal()
+            self.goal_nums=0
+            t=beginIndex
+            while True:
+                row=df.iloc[t]
+                if np.isnan(row[5]) or np.isnan(row[1]) or np.isnan(row[2]) or np.isnan(row[3]) or np.isnan(row[4]):
+                    t+=1
+                    continue
+                break
+            lastClickX,lastClickY=int(row[3]*1.25),int(row[4]*1.25)
+            lastX,lastY=int(row[3]*1.25),int(row[4]*1.25)
+            lastTime=int(row[0])
+            for j in range(beginIndex,fileLen):
+                row=df.iloc[j]
+                if np.isnan(row[5]) or np.isnan(row[1]) or np.isnan(row[2]) or np.isnan(row[3]) or np.isnan(row[4]):
+                    continue
+                clickFlag=True if int(row[5])==0 else False
+                # if clickFlag and tallyFlag[i]>0:
+                #     tallyFlag[i]-=1
+                #     lastClickX,lastClickY=int(row[3]*1.25),int(row[4]*1.25)
+                #     lastX,lastY=int(row[3]*1.25),int(row[4]*1.25)
+                #     lastTime=int(row[0])
+                #     continue
+                mouseX,mouseY=int(row[3]*1.25),int(row[4]*1.25)
+                thisTime=int(row[0])
+                curve[i]+=np.sqrt((mouseX-lastX)**2+(mouseY-lastY)**2)
+                if mouseX!=lastX and mouseY!=lastY:
+                    movingTime[i]+=thisTime-lastTime
+                lastX,lastY=mouseX,mouseY
+                lastTime=thisTime
+                if clickFlag:
+                    straight[i]+=np.sqrt((mouseX-lastClickX)**2+(mouseY-lastClickY)**2)
+                    lastClickX,lastClickY=mouseX,mouseY
+        
+        ansList=[]
+        for f,s,c,m in zip(self.files_path,straight,curve,movingTime):
+            ansList.append([f,s,c,m])
+        return ansList
+
+    def tallyIPA1IPA2(self):
+        pass
+
+    # 
+    def tallySavingDisFromAgent(self,agent,testAllEnvs,testAllNum,testAllScene,device,savePath,restrict):
+        # print(restrict)
+        self.restrict=restrict
+        # print(self.restrict)
+        # print(savePath)
+        clickRegion=Region('click')
+        clickRegion.setRegions(CLICKAREAS)
+        preTest=PresentsRecorder(len(testAllEnvs))
+        agent.eval()
+        savingDis=0
+        if not os.path.exists(savePath):
+            os.makedirs(savePath)
+        fileNum=len(os.listdir(savePath))
+        savePath=os.path.join(savePath,str(fileNum))
+        if not os.path.exists(savePath):
+            os.makedirs(savePath)
+        savePath=os.path.join(savePath,'save.txt')
+        f=open(savePath,'w')
+        f.write('write\n')
+        f.close()
+        for i in range(len(testAllEnvs)):
+            testAllEnvs[i].load_dict()
+            testAllEnvs[i].get_file()
+            testAllEnvs[i].disMode=True
+        for i in range(len(testAllEnvs)): 
+            savingDis=0
+            nowPredict=[-1,-1]
+            self.base_path=testAllEnvs[i].base_path
+            totalDis=0
+            while True:
+                ans=testAllEnvs[i].act()
+                if isinstance(ans,bool):
+                    break
                 else:
-                    moveTimes+=1
-                    totalMove+=np.sqrt((x-df.iloc[i-1][3])**2+(y-df.iloc[i-1][4])**2)
-                    totalTime+=df.iloc[i][0]-df.iloc[i-1][0]
-            predictFlag=False
-            if df.iloc[i][-1]!=0 and df.iloc[i][-2]!=0:
-                lastX,lastY=df.iloc[i][-2],df.iloc[i][-1]
-                predictFlag=True
+                    eye=torch.tensor([ans[0]],dtype=torch.long).to(device)
+                    click=torch.tensor([ans[1]],dtype=torch.long).to(device)
+                    lengths=torch.tensor([ans[4]],dtype=torch.long)
+                    person=torch.tensor([[[testAllNum[i]]]],dtype=torch.long).to(device)
+                    scene=torch.tensor([[[testAllScene[i]]]],dtype=torch.long).to(device)
 
-        return totalTime,totalMove,moveTimes
+                    if preTest.flag[i]==False:
+                        preTest.init(i,ans[1])
+                    lastP=torch.tensor([preTest.getLastPresents(i)],dtype=torch.long).to(device)
+                    ansRegion=int(agent.act(click,eye,lastP,lengths,person,scene))
+                    preTest.add(i,ans)
+                    if nowPredict[0]==-1:
+                        subRegion=clickRegion.judgeHeart(ans[1][-1])
+                        nowPredict[0],nowPredict[1]=subRegion[0],subRegion[1]
+                    if ansRegion != 12:
+                        heart=clickRegion.judgeHeart(ansRegion)
+                        nowPredict[0],nowPredict[1]=heart[0],heart[1]
+                    # ans -> eye click goal isEnd
+                    
+                    if ans[3]==1:
+                        if nowPredict[0]==-1 and nowPredict[1]==-1:
+                            continue
+                        beginPoint=dp(ans[-2])
+                        endPoint=dp(ans[-1])
+                        if beginPoint[0]==-1 and beginPoint[1]==-1:
+                            beginPoint=clickRegion.judgeHeart(ans[1][-1])
+                        dis=np.sqrt((beginPoint[0]-endPoint[0])**2+(beginPoint[1]-endPoint[1])**2)
+                        trueDis=np.sqrt((nowPredict[0]-endPoint[0])**2+(nowPredict[1]-endPoint[1])**2)
+                        savingDis+=(dis-trueDis)
+                        totalDis+=dis
+                        # print(beginPoint,endPoint,nowPredict,dis,trueDis,dis-trueDis)
+                        nowPredict=[-1,-1]
+            self.files_path=dp(testAllEnvs[i].files_path)
+            self.current_dir_len=len(self.files_path)
+            lineInfo=self.tallyOffLineCurveAndStraightLineAndMovingTime()
+            straight=0
+            for l in lineInfo:
+                straight+=l[1]
 
+            with open(savePath,'a',encoding='UTF-8') as f:
+                f.write('num: '+str(testAllNum[i])+' scene: '+str(testAllScene[i])+' savingdis: '+str(savingDis)+' straightDis: '+str(straight)+' totalDis: '+str(totalDis)+'\n')
+            totalDis=0
 
+                
+    
+  
 EYEAREAS=[[0,0,1300,1080],[1300,0,1920,390],[1300,390,1920,1080],
           [0+1920,0,560+1920,260],[0+1920,260,560+1920,670],[0+1920,670,560+1920,1080],#left
           [560+1920,0,1360+1920,680],[560+1920,680,975+1920,1080],[975+1920,680,1380+1920,1080],#mid
           [1380+1920,0,1920+1920,260],[1380+1920,260,1920+1920,680],[1380+1920,680,1920+1920,1080]]# right
 
+
+# 0 1 2 3 6 9
 CLICKAREAS=[[0,0,1300,1080],[1300,0,1920,390],[1300,390,1920,1080],
           [0+1920,0,560+1920,260],[0+1920,260,560+1920,670],[0+1920,670,560+1920,1080],#left
           [560+1920,0,1360+1920,680],[560+1920,680,975+1920,1080],[975+1920,680,1380+1920,1080],#mid
@@ -1028,7 +1353,7 @@ class Region(object):
             self.regions.append(region)
             self.regionNum.append(number)
             number+=1
-            self.regionHeart=[0.5*(region[0]+region[2]),0.5*(region[1]+region[3])]
+            self.regionHeart.append([0.5*(region[0]+region[2]),0.5*(region[1]+region[3])])
         self.counting=[0 for i in range(number+4)]
     
     def judge(self,x,y):
@@ -1066,7 +1391,16 @@ class Region(object):
         self.counting[len(self.regionNum)+flagX+flagY-1]+=1
         return len(self.regionNum)+flagX+flagY-1
         
-    
+    def judgeHeart(self, regionNum:int):
+        # print(self.regionNum,self.regionHeart)
+        # print(f'this is regionNum {regionNum}')
+        for heart, num in zip(self.regionHeart, self.regionNum):
+            # print(f'this is num {num}')
+            if regionNum==num:
+                return heart
+
+
+
     # def __del__(self):
     #     print(f'name: {self.name}')
     #     print('distribution:')
@@ -1076,8 +1410,6 @@ class Region(object):
     #     print(f'region: {"left"} num: {len(self.regionNum)+1} counting: {self.counting[-3]}')
     #     print(f'region: {"bottom"} num: {len(self.regionNum)+2} counting: {self.counting[-2]}')
     #     print(f'region: {"right"} num: {len(self.regionNum)+3} counting: {self.counting[-1]}')
-
-
 
 def getTimeStamp():
     import time
@@ -1107,6 +1439,7 @@ class DQNDataRecorder(object):
         for i in range(1,self.size+1):
             dataStr+=self.strFunc(self.list,self.recordTimes,i)+'\n'
         return dataStr
+
 class PresentsRecorder(object):
 
     def __init__(self,num) -> None:
@@ -1133,11 +1466,78 @@ class PresentsRecorder(object):
     def getLastPresents(self,index):
         return dp(self.recorder[index])
 
-   
+
+def tallyOfflineDis():
+    envs=[]
+    for i in range(17,22): 
+        envs.append(str(i))
+    testAllEnvs=[]
+    testAllNum=[]
+    testAllScene=[]
+    device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
+    agent=REMAgent2(device=device)
+
+    # agent.load('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231222/offline/2/18/best.pt')
+    basePath='/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231222/offline/'
+    restrict=[True,False,True,False]
+    timeStamp=getTimeStamp()
+    filePath=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/',timeStamp[0:-6],'dis')
+    if not os.path.exists(filePath):
+        os.makedirs(filePath)
+    fileNum=len(os.listdir(filePath))
+    filePath=os.path.join(filePath,str(fileNum))
+    if not os.path.exists(filePath):
+        os.makedirs(filePath)
+    for k in range(2,6):
+        for env in envs:
+            loadPath=os.path.join(basePath,str(k),env,'best.pt')
+            agent.load(loadPath)
+            testAllEnvs=[]
+            testAllNum=[]
+            testAllScene=[]
+            savePath=os.path.join(filePath,str(k),env)
+            if not os.path.exists(savePath):
+                os.makedirs(savePath)
+            for scene in range(1,5):
+                testEnvPath=os.path.join('/home/wu_tian_ci/eyedata/seperate/',env,str(scene))
+                testAllEnvs.append(DQNRNNEnv(base_path=testEnvPath,num=int(env),scene=int(scene),restrict=True))
+                testAllNum.append(int(env))
+                testAllEnvs[-1].shuffle=False
+                testAllEnvs[-1].topN=5
+                testAllEnvs[-1].eval=True
+                testAllScene.append(scene)
+                testAllEnvs[-1].restrict=restrict[k-2]
+            dt=DataCollector('',MODE=0)
+
+            dt.tallySavingDisFromAgent(agent,testAllEnvs,testAllNum,testAllScene,device,savePath,restrict[k-2])
+
 
 if __name__ == '__main__':
-    print(getTimeStamp()[4:-6])
-    # clickRegion=Region('click')
-    # clickRegion.setRegions(CLICKAREAS)
-    # # 2975.0, 488.0
-    # print(clickRegion.judge(462.0, 996.0))
+    tallyOfflineDis()
+    # env=[]
+    # for i in range(17,22): 
+    #     env.append(str(i))
+
+
+    # env=['23']
+    # for i in range(len(env)):
+    #     for j in range(1,5):
+    #         if j ==3:
+    #             continue
+    #         basePath='/home/wu_tian_ci/eyedatanew'
+    #         filePath=os.path.join(basePath,env[i],str(j))
+    #         # print(filePath)
+    #         dt=DataCollector(filePath,MODE=0)
+    #         saving=dt.tallyOffLineCurveAndStraightLineAndMovingTime()
+    #         savingDis,movingDis,movingT=[],[],[]
+    #         for item in saving:
+    #             # print(item)
+    #             savingDis.append(item[1])
+    #             movingDis.append(item[2])
+    #             movingT.append(item[3])
+    #         print(i,j,' ',int(np.mean(savingDis)),int(np.mean(movingDis)),int(np.mean(movingT)/1000))
+    #     print('')
+    
+
+    
+    

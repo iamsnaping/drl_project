@@ -34,9 +34,11 @@ import random
 from tqdm import tqdm
 
 
-class DQNRNNEnv:
+class DQNRNNEnv(object):
     #所有指针都指向下一个元素
-    def __init__(self,base_path):
+    def __init__(self,base_path,num=0,scene=0,MODE=1,restrict=False,disMode=False):
+        self.num=num
+        self.scene=scene
         self.file_finish = False
         self.files=[]
         self.files_len=0
@@ -50,12 +52,14 @@ class DQNRNNEnv:
         self.trans_nums=0
         self.trans_path=''
         self.last_goal_list=[]
-        self.goal=[0.,0.,0.]
+        self.goal=0
         self.move_list=[]
         self.state_list=[]
-
+        self.MODE=MODE
         self.lengths=[]
         self.lastEye=-1
+        self.restrictArea=[0 ,1, 2 ,3 ,6, 9]
+        self.restrict=restrict
 
         self.near_states_list=[]
         self.goal_nums=0
@@ -87,6 +91,13 @@ class DQNRNNEnv:
         self.clickRegion.setRegions(UTIL.CLICKAREAS)
         self.eval=False
 
+        self.disMode=disMode
+        self.beginPoint=[-1,-1]
+        self.endPoint=[-1,-1]
+    
+    def setMODE(self,MODE):
+        self.MODE=MODE
+
     def regular(self,paths):
         for p in paths:
             self.regularPath.append(p)
@@ -102,12 +113,20 @@ class DQNRNNEnv:
         elif self.eval==True:
             dirs=os.listdir(self.base_path)
             for dir in dirs:
-                self.files_path.append(os.path.join(self.base_path,dir))
-            self.files_path=self.files_path[self.topN:-1]
+                if dir[-6]=='_':
+                    if (dir[-5]=='0' or dir[-5]==str(self.MODE)):
+                        self.files_path.append(os.path.join(self.base_path,dir))
+                else:
+                    self.files_path.append(os.path.join(self.base_path,dir))
+            self.files_path=self.files_path[self.topN:]
         else:
             dirs=os.listdir(self.base_path)
             for dir in dirs:
-                self.files_path.append(os.path.join(self.base_path,dir))
+                if dir[-6]=='_':
+                    if (dir[-5]=='0' or dir[-5]==str(self.MODE)):
+                        self.files_path.append(os.path.join(self.base_path,dir))
+                else:
+                    self.files_path.append(os.path.join(self.base_path,dir))
             if self.topN!=-1:
                 self.files_path=self.files_path[0:self.topN]
         if self.shuffle:
@@ -138,7 +157,7 @@ class DQNRNNEnv:
         self.cfile_len=0
         self.trans_nums=0
         self.last_goal_list=[]
-        self.goal=[0.,0.,0.]
+        self.goal=0
         self.move_list=[]
         self.state_list=[]
         self.near_states_list=[]
@@ -153,6 +172,8 @@ class DQNRNNEnv:
 
         self.lengths=[]
         self.lastEye=-1
+        self.beginPoint=[-1,-1]
+        self.endPoint=[-1,-1]
     
     def refresh(self):
         self.file_finish = False
@@ -168,7 +189,7 @@ class DQNRNNEnv:
         self.trans_nums=0
         self.trans_path=''
         self.last_goal_list=[]
-        self.goal=0.
+        self.goal=0
         self.move_list=[]
         self.state_list=[]
         self.goal_nums=0
@@ -187,9 +208,24 @@ class DQNRNNEnv:
 
         self.lastEye=-1
         self.lengths=[]
+        self.beginPoint=[-1,-1]
+        self.endPoint=[-1,-1]
 
     def get_goal(self):
         flag=-1
+        goalFlag=False
+        if self.goal_nums>0:
+            t=self.goal_nums-1
+            while t>0:
+                row=self.df.iloc[t]
+                if np.isnan(row[5]) or np.isnan(row[1]) or np.isnan(row[2]) or np.isnan(row[3]) or np.isnan(row[4]):
+                    t-=1
+                flag=row[5]
+                if flag==0:
+                    self.beginPoint=[row[3]*1.25,row[4]*1.25]
+                    break
+                t-=1
+        # print(self.goal_nums,self.beginPoint)
         while self.goal_nums<self.cfile_len:
             row=self.df.iloc[self.goal_nums]
             if np.isnan(row[5]) or np.isnan(row[1]) or np.isnan(row[2]) or np.isnan(row[3]) or np.isnan(row[4]):
@@ -197,6 +233,9 @@ class DQNRNNEnv:
                 continue  
             flag=row[5]
             if flag==0:
+                goalFlag=True
+                self.goal=self.clickRegion.judge(row[3]*1.25,row[4]*1.25)
+                self.endPoint=[row[3]*1.25,row[4]*1.25]
                 break
             self.goal_nums+=1
         while flag ==0 and self.goal_nums<self.cfile_len:
@@ -206,24 +245,40 @@ class DQNRNNEnv:
             flag=int(row[5])
             if flag !=0:
                 break
-            self.goal=self.clickRegion.judge(row[3],row[4])
+            self.goal=self.clickRegion.judge(row[3]*1.25,row[4]*1.25)            
             self.goal_nums+=1
-    
+        if self.goal_nums>=self.cfile_len-1:
+            if not goalFlag:
+                self.file_finish=True
+
     def get_1round(self):
         t=0
         increased=False
         self.lengths=[]
         self.move_list=[]
         self.state_list=[]
-        while True:
-            while len(self.last_goal_list)<3:
+        endFlag=False
+        while True and (not self.file_finish):
+            while len(self.last_goal_list)<3 and (not self.file_finish):
                 self.get_goal()
-                if len(self.last_goal_list)==0 or self.last_goal_list[-1]!=self.goal:
-                    self.last_goal_list.append(self.goal)
+                if (len(self.last_goal_list)==0 or self.last_goal_list[-1]!=self.goal )and (not self.file_finish):
+                    # print(self.goal,self.cfile_len,self.goal_nums,self.files_path[self.current_file])
+                    if (self.goal in self.restrictArea):
+                        self.begin_idx=self.goal_nums
+                        if not self.restrict:
+                            self.last_goal_list.append(self.goal)
+                    else:
+                        self.last_goal_list.append(self.goal)
+                        self.begin_idx=self.goal_nums
                 self.begin_idx=self.goal_nums
-            else:
-                if t==0 and self.last_goal_list[-1]!=self.goal:
-                    self.last_goal_list.append(self.goal)
+            # print(self.goal_nums,self.cfile_len)
+            if t==0 and self.last_goal_list[-1]!=self.goal :
+                if self.goal in self.restrictArea:
+                    if not self.restrict:
+                        self.last_goal_list.append(self.goal)
+                else:
+                    self.last_goal_list.append(self.goal)    
+
             # while flag:
             self.get_goal()
             if self.end_idx!=0:
@@ -262,8 +317,9 @@ class DQNRNNEnv:
                     self.state_list.append(states)
                     self.lengths.append(length)
                 if (i==self.end_idx-1) and (self.end_idx>=self.cfile_len-5):
+                    endFlag=True
                     break
-            if self.end_idx>=self.cfile_len:
+            if self.end_idx>=(self.cfile_len-2) or endFlag:
                 self.file_finish=True
             self.states_idx=0
             t+=1
@@ -287,8 +343,13 @@ class DQNRNNEnv:
         states_idx=self.states_idx
         self.states_idx+=1
         # state near_state last_goal_list,last_goal,goal,isend
-        return self.state_list[states_idx],self.last_goal_list[-3:],\
-            self.goal,int(self.states_idx>=(self.states_len)),self.lengths[states_idx]
+        if self.disMode==False:
+            return self.state_list[states_idx],self.last_goal_list[-3:],\
+                self.goal,int(self.states_idx>=(self.states_len)),self.lengths[states_idx]
+        else:
+            return self.state_list[states_idx],self.last_goal_list[-3:],\
+                self.goal,int(self.states_idx>=(self.states_len)),self.lengths[states_idx],self.beginPoint,self.endPoint
+    
         
 
     def act(self):
@@ -328,21 +389,22 @@ class DQNRNNEnv:
 
 
 
-      
-
 if __name__ == '__main__':
-
-    env2=DQNRNNEnv('/home/wu_tian_ci/eyedatanew/01/1')
-    env2.load_dict()
-    env2.get_file()
-    k=0
-    while True:
-        ans=env2.act()
-        k+=1
-        if isinstance(ans,bool):
-            env2.load_dict()
-            env2.get_file()
-            print(k)
+    print(os.listdir('/home/wu_tian_ci/eyedatanew/23/1'))
+    for dir in os.listdir('/home/wu_tian_ci/eyedatanew/23/1'):
+        print(dir)
+        print(dir[-6]=='-',dir[-5]=='0')
+    # env2=DQNRNNEnv('/home/wu_tian_ci/eyedatanew/01/1')
+    # env2.load_dict()
+    # env2.get_file()
+    # k=0
+    # while True:
+    #     ans=env2.act()
+    #     k+=1
+    #     if isinstance(ans,bool):
+    #         env2.load_dict()
+    #         env2.get_file()
+    #         print(k)
 
 
     

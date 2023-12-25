@@ -205,7 +205,7 @@ class TrainModel(object):
         self.tras=DQNRNNTrajectory2()
 
         # for dataset
-        self.dataSetBuffer=ReplayBufferRNN2(2**19,self.device)
+        # self.dataSetBuffer=ReplayBufferRNN2(2**19,self.device)
         # for test people data
         self.trainBuffer=ReplayBufferRNN2(2**17,self.device)
         self.batchSize=8
@@ -233,31 +233,32 @@ class TrainModel(object):
         trainNums=[]
         trainScene=[]
         skipSize=5
-        for scene in range(1,5):
-            for i in range(2,22):
-                if i in OnlineConfig.SKIP_LIST.value:
-                    continue
-                if i<10:
-                    envStr='0'+str(i)
-                else:
-                    envStr=str(i)
-                trainNums.append(i)
-                # envPath=os.path.join(OnlineConfig.DATASET_PATH.value,envStr,OnlineConfig.SCENE.value)
-                envPath=os.path.join(OnlineConfig.DATASET_PATH.value,envStr,str(scene))
-                envs.append(DQNRNNEnv(envPath))
-                trajectorys.append(DQNRNNTrajectory2())
-                trainScene.append(scene)
+        # for scene in range(1,5):
+        #     for i in range(2,22):
+        #         if i in OnlineConfig.SKIP_LIST.value:
+        #             continue
+        #         if i<10:
+        #             envStr='0'+str(i)
+        #         else:
+        #             envStr=str(i)
+        #         trainNums.append(i)
+        #         # envPath=os.path.join(OnlineConfig.DATASET_PATH.value,envStr,OnlineConfig.SCENE.value)
+        #         envPath=os.path.join(OnlineConfig.DATASET_PATH.value,envStr,str(scene))
+        #         envs.append(DQNRNNEnv(envPath))
+        #         trajectorys.append(DQNRNNTrajectory2())
+        #         trainScene.append(scene)
         if os.path.exists(OnlineConfig.INDIVIDUAL.value):
             fileNum=len(os.listdir(OnlineConfig.INDIVIDUAL.value))
         else:
             fileNum=0
         onlineNum=int(np.ceil(fileNum/5))
-        for i in range(onlineNum):
-            envs.append(DQNRNNEnv(OnlineConfig.INDIVIDUAL.value))
-            trajectorys.append(DQNRNNTrajectory2())
-            pr.addRecorder()
-            trainNums.append(OnlineConfig.PERSON.value)
-            # trajectorys.append(DQNTrajectory())
+        for scene in range(1,5):
+            for i in range(onlineNum):
+                envs.append(DQNRNNEnv(os.path.join(OnlineConfig.INDIVIDUAL_NO_SCENE.value,scene)))
+                trajectorys.append(DQNRNNTrajectory2())
+                pr.addRecorder()
+                trainNums.append(OnlineConfig.PERSON.value)
+                trainScene.append(scene)
         for i in range(len(envs)):
             envs[i].load_dict()
             envs[i].get_file()
@@ -302,7 +303,6 @@ class TrainModel(object):
                 if self.newFileNums%5==0 and self.newFileNums!=0:
                     updateTimes=int(np.ceil(self.newFileNums/5))
                     skipSize+=1
-                    trainNums.append(OnlineConfig.PERSON.value)
                     for sceneNum in range(1,5):
                         for i in range(updateTimes):
                             envs.append(DQNRNNEnv(os.path.join(OnlineConfig.INDIVIDUAL_NO_SCENE.value,str(sceneNum))))
@@ -310,6 +310,7 @@ class TrainModel(object):
                             envs[-1].get_file()
                             pr.addRecorder()
                             trajectorys.append(DQNRNNTrajectory2())
+                            trainNums.append(OnlineConfig.PERSON.value)
                             trainScene.append(sceneNum)
                     
                     self.newFileNums=0
@@ -573,8 +574,8 @@ class TrainModel(object):
         eyeTensor=torch.tensor([eyeList],dtype=torch.long).unsqueeze(0).to(self.device)
         lenTensor=torch.tensor([length],dtype=torch.long)
         pTensor=torch.tensor([lastP],dtype=torch.long).unsqueeze(0).to(self.device)
-        personTensor=torch.tensor([[[person]]],dtype=torch.float32).to(self.device)
-        sceneTensor=torch.tensor([[[scene]]],dtype=torch.float32).to(self.device)
+        personTensor=torch.tensor([[[person]]],dtype=torch.long).to(self.device)
+        sceneTensor=torch.tensor([[[scene]]],dtype=torch.long).to(self.device)
         ans=int(self.predictModel.act(clickTensor,eyeTensor,pTensor,lenTensor,personTensor,sceneTensor))
         # click,eye,goal,action,mask
         mask=UTIL.GAMMA
@@ -647,7 +648,7 @@ def sendData():
     peopleNum=resp.get('peopleNum')
     sceneNum=resp.get('sceneNum')
     model.sceneNum=sceneNum
-    savePath=os.path.join(OnlineConfig.EYE_DATA_PATH.value,peopleNum,sceneNum)
+    savePath=os.path.join(str(OnlineConfig.EYE_DATA_PATH.value),str(peopleNum),str(sceneNum))
     if not os.path.exists(savePath):
         os.makedirs(savePath)
     savePath=os.path.join(savePath,fileName)

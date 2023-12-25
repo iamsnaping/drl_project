@@ -133,7 +133,7 @@ class PresentsRecorder(object):
         return dp(self.recorder[index])
 
         
-def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,remBlocskNum=5,store_path=None,json_path=None,value_path=None,critic_loss_path=None):
+def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,remBlocskNum=5,store_path=None,restrict=False):
     # random.seed(None)
     # np.random.seed(None)
     agent.online.to(device)
@@ -173,9 +173,12 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,rem
     personNum=[]
     sceneNum=[]
     for scene in range(1,5):
+        # if thr and  scene==3:
+        #     continue
         for env in multienvs:
             envPath=os.path.join('/home/wu_tian_ci/eyedata/seperate/',env,str(scene))
-            envs.append(DQNRNNEnv(envPath))
+            # envPath=os.path.join('/home/wu_tian_ci/eyedatanew/23',str(scene))
+            envs.append(DQNRNNEnv(envPath,restrict=restrict))
             envFlags.append(False)
             envPaths.append(envPath)
             trajectorys.append(DQNRNNTrajectory2())
@@ -188,10 +191,7 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,rem
     pr=PresentsRecorder(len(envs))
     beginFlags=[True for i in range(len(envs))]
     for K in tqdm(range(epochs)):
-        # vdr=ValueRecoder()
-        # vdr.restore_path=os.path.join(value_path,str(K)+'.json')
-        # clp=ValueRecoder()
-        # clp.restore_path=os.path.join(critic_loss_path,str(K)+'.json')
+
         for env in envs:
             env.state_mode=mode
         ll, t = 0, 0
@@ -446,43 +446,62 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,rem
                 errorR+accR+endAccR+'\n')
 
 if __name__=='__main__':
+
+
+    def str2bool(v):
+        if isinstance(v,bool):
+            return v
+        if v.lower() in ('true','True','yes'):
+            return True
+        elif v.lower() in ('no','false','False'):
+            return False
+        else:
+            raise argparse.ArgumentTypeError('Boolean value expected.')
     parser=argparse.ArgumentParser()
     parser.add_argument('-modelPath',type=str,default='20231022203322')
     parser.add_argument('-cuda',type=str,default='cuda:1')
     parser.add_argument('-mode',type=int,default=1)
     parser.add_argument('-net',type=int,default=1)
     parser.add_argument('-sup',type=str,default='50')
-    parser.add_argument('-preload',type=bool,default=False)
+    parser.add_argument('-preload',type=str2bool,default=False)
     parser.add_argument('-lr',type=float,default=0.0005)
     parser.add_argument('-layers',type=int,default=5)
     parser.add_argument('-embed',type=int,default=128)
     parser.add_argument('-rems',type=int,default=5)
     parser.add_argument('-epochs',type=int,default=500)
     parser.add_argument('-batchsize',type=int,default=256)
-
+    parser.add_argument('-restrict',type=str2bool,default=False)
+    parser.add_argument('-appF',type=str2bool,default=False)
+    parser.add_argument('-appP',type=str,default='restrict')
+    # TRUE -> skip the scene three
+    parser.add_argument('-thr',type=str2bool,default=False)
     args=parser.parse_args()
     # device=torch.device('cpu')
     device = torch.device(args.cuda if torch.cuda.is_available() else 'cpu')
-    # agent=RNNAgent(device=device,rnn_layer=args.layers,embed_n=args.embed)
     agent=REMAgent2(device=device,rnn_layer=args.layers,embed_n=args.embed)
     store=UTIL.getTimeStamp()
 
     if args.preload:
-        actor_load=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain/',args.modelPath)
-        actor_load=os.path.join(actor_load,'200pretrain.pt')
-        agent.load(actor_load)
+        agent.load('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231220/trainallscene/0/dqnnetoffline.pt')
     # else:
     #     actor_load='/home/wu_tian_ci/drl_project/mymodel/ddpg/pretrain_data/ddpg_train/1last_move5/ActorNet.pt'
-    store_path=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/',store[0:-6],'trainallscene',store[-6:])
-    json_path=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/json_path/',store[0:-6],'trainallscene',store[-6:])
-    value_path=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/value_path/',store[0:-6],'trainallscene',store[-6:])
-    critic_loss_path=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/critic_loss/',store[0:-6],'trainallscene',store[-6:])
-    if not os.path.exists(json_path):
-        os.makedirs(json_path)
-    if not os.path.exists(value_path):
-        os.makedirs(value_path)
-    if not os.path.exists(critic_loss_path):
-        os.makedirs(critic_loss_path)
+    mainPath=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/',store[0:-6],'trainallscene')
+    if not os.path.exists(mainPath):
+        os.makedirs(mainPath)
+    fileNum=len(os.listdir(mainPath))
+    if args.appF==False:
+        store_path=os.path.join(mainPath,str(fileNum))
+    else:
+        store_path=os.path.join(mainPath,args.appP)
+    # json_path=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/json_path/',store[0:-6],'trainallscene',store[-6:])
+    # value_path=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/value_path/',store[0:-6],'trainallscene',store[-6:])
+    # critic_loss_path=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/critic_loss/',store[0:-6],'trainallscene',store[-6:])
+    # if not os.path.exists(json_path):
+    #     os.makedirs(json_path)
+    # if not os.path.exists(value_path):
+    #     os.makedirs(value_path)
+    # if not os.path.exists(critic_loss_path):
+    #     os.makedirs(critic_loss_path)
     print(args.sup)
     print(store[-6:])
     envs=[]
@@ -494,7 +513,7 @@ if __name__=='__main__':
         else:
             envs.append(str(i))
     print(device)
-    
+    # envs=['23']
     if not os.path.exists(store_path):
         os.makedirs(store_path)
     with open(os.path.join(store_path,'envsinfo.txt'),'w') as f:
@@ -503,4 +522,4 @@ if __name__=='__main__':
         if args.sup!='50':
             f.write('\n'+args.sup)
     train_epoch(agent, args.lr, args.epochs, args.batchsize,device,args.mode,store_path=store_path,multienvs=envs,\
-                json_path=json_path,value_path=value_path,critic_loss_path=critic_loss_path,remBlocskNum=args.rems)
+               remBlocskNum=args.rems,restrict=args.restrict)

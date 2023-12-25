@@ -241,8 +241,9 @@ class Classifier(nn.Module):
 
 # scnene embed
 class REMNet2(nn.Module):
-    def __init__(self,device,embed_n=64,rnn_layer=10,remBlocskNum=5):
+    def __init__(self,device,embed_n=64,rnn_layer=10,remBlocskNum=5,idFlag=False):
         super(REMNet2, self).__init__()
+        self.idFlag=idFlag
         # self.embedNum=embed_n
         self.device=device
         self.embedingEye=nn.Embedding(16,embed_n)
@@ -303,10 +304,11 @@ class REMNet2(nn.Module):
         actions1=torch.cat([actions1,newClickEncode,hnM],dim=-1)
         personPosition=self.personEmbed(person).squeeze(1)
         scenePosition=self.sceneEmbed(scene).squeeze(1)
-        
-        actions1=actions1+personPosition+scenePosition
+        if self.idFlag:
+            actions1=actions1+personPosition+scenePosition
         # actions1=actions1+personPosition
-        # actions1=actions1+scenePosition
+        else:
+            actions1=actions1+scenePosition
         ansList=[]
         for layer in self.remBlocks:
             ansList.append(layer(actions1))

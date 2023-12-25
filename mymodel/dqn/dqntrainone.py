@@ -88,8 +88,6 @@ class ValueRecoder:
     def __del__(self):
         self.restore_data()
 
-
-
 class NumRecorder(object):
 
     def __init__(self,nums) -> None:
@@ -108,10 +106,36 @@ class NumRecorder(object):
     def clear(self):
         self.recoder=[0 for i in range(self.nums)]
 
+class PresentsRecorder(object):
+
+    def __init__(self,num) -> None:
+        self.num=num
+        self.recorder=[[] for i in range(num)]
+        self.flag=[False for i in range(num)]
+    
+    # init with last3goal
+    def init(self,index,last3goal):
+        self.recorder[index]=dp(last3goal)
+
+    def addRecorder(self):
+        self.recorder.append([])
+        self.flag.append(False)
+        self.num+=1
+
+    def add(self,index,num):
+        for i in range(2):
+            self.recorder[index][i]=self.recorder[index][i+1]
+        if num!=12:
+            self.recorder[index][2]=num
+
+
+    def getLastPresents(self,index):
+        return dp(self.recorder[index])
+
         
-def train_epoch(agent:Agent, lr, epochs, batch_size,device,mode,envP,store_path=None,json_path=None,value_path=None,critic_loss_path=None):
-    random.seed(None)
-    np.random.seed(None)
+def train_epoch(agent:REMAgent2, lr, epochs, batch_size,device,mode,multienvs,remBlocskNum=5,store_path=None,restrict=False,thr=False):
+    # random.seed(None)
+    # np.random.seed(None)
     agent.online.to(device)
     agent.target.to(device)
     EPOSILON_DECAY=epochs
@@ -119,26 +143,21 @@ def train_epoch(agent:Agent, lr, epochs, batch_size,device,mode,envP,store_path=
     EPOSILON_END=0.02
     # ebuffer=ExampleBuffer(2**17)
     trainer = torch.optim.Adam(lr=lr, params=agent.online.parameters())
-    loss=nn.MSELoss()
-    agentBuffer=ReplayBuffer(2**17,device)
+    loss=nn.HuberLoss()
+    agentBuffer=ReplayBufferRNN2(2**19,device)
     if not os.path.exists(store_path):
         os.makedirs(store_path)
     m_store_path_a=os.path.join(store_path,'dqnnetoffline.pt')
     reward_path=os.path.join(store_path,'reward.txt')
     updataInfo=os.path.join(store_path,'updateInfo.txt')
-    testInfo=os.path.join(store_path,'testInfo.txt')
-    updateTestInfo=os.path.join(store_path,'updateTestInfo.txt')
     f=open(reward_path,'w')
-    f.write(envP+'\n')
+    env_str=''
+    for e in multienvs:
+        env_str+=e+' '
+    f.write(env_str+'\n')
     f.close()
     f=open(updataInfo,'w')
-    f.write(envP+'\n')
-    f.close()
-    f=open(testInfo,'w')
-    f.write(envP+'\n')
-    f.close()
-    f=open(updateTestInfo,'w')
-    f.write(envP+'\n')
+    f.write(env_str+'\n')
     f.close()
     t_reward=[]
     t_end_reward=[]
@@ -147,15 +166,38 @@ def train_epoch(agent:Agent, lr, epochs, batch_size,device,mode,envP,store_path=
     is_training=False
     # json_path='/home/wu_tian_ci/drl_project/mymodel/ddpg/pretrain_data/json_path'
     # envs 
-    envPath=os.path.join('/home/wu_tian_ci/eyedata/seperate/',envP,'1')
-    env=DQNEnv(envPath)
-    trajectory=DQNTrajectory()
-    env.load_dict()
-    env.get_file()
-    env.state_mode=mode
-    numRecorder=0
+    envs=[]
+    envFlags=[]
+    envPaths=[]
+    trajectorys=[]
+    personNum=[]
+    sceneNum=[]
+    for scene in range(1,5):
+        if thr and scene==3:
+            continue
+        for env in multienvs:
+            # envPath=os.path.join('/home/wu_tian_ci/eyedata/seperate/',env,str(scene))
+            envPath=os.path.join('/home/wu_tian_ci/eyedatanew/23',str(scene))
+            envs.append(DQNRNNEnv(envPath,restrict=restrict))
+            envFlags.append(False)
+            envPaths.append(envPath)
+            trajectorys.append(DQNRNNTrajectory2())
+            personNum.append(int(env))
+            sceneNum.append(int(scene))
+    for i in range(len(envs)):
+        envs[i].load_dict()
+        envs[i].get_file()
+
+    pr=PresentsRecorder(len(envs))
+    beginFlags=[True for i in range(len(envs))]
     for K in tqdm(range(epochs)):
+
+        for env in envs:
+            env.state_mode=mode
+        ll, t = 0, 0
+        # env.refresh()
         rewards=[]
+        #ans -> state last_goal_state last_goal goal is_end
         endAveReward=[]
         endIn=0
         endOut=0
@@ -171,35 +213,95 @@ def train_epoch(agent:Agent, lr, epochs, batch_size,device,mode,envP,store_path=
         traLenOverThree=0
         endInNoAct=0
         endOutNoAct=0
+        # 100
+        processReward=[]
+
+        # scene
+        endInS=[0 for i in range(5)]
+        endOutS=[0 for i in range(5)]
+        inS=[0 for i in range(5)]
+        outS=[0 for i in range(5)]
+        errorsS=[0 for i in range(5)]
+        lenS=[0 for i in range(5)]
+
         for steps in range(500):
-            ans=env.act()
-            if isinstance(ans,bool):
-                env.load_dict()
-                env.get_file()
-                numRecorder=0
-                continue
-            else:
-                eye=torch.tensor([ans[0]],dtype=torch.int64).reshape((1,1,3)).to(device)
-                click=torch.tensor([ans[1]],dtype=torch.int64).reshape((1,1,3)).to(device)
-                index=[numRecorder for j in range(3)]
-                index=torch.tensor([index],dtype=torch.float32).reshape(1,3,1).to(device)
-                action=agent.act(click,eye,index)
-                doneFlag=0
-                if ans[3]==1:
-                    doneFlag=0
+            eyeList=[]
+            clickList=[]
+            indexes=[]
+            lastPList=[]
+            lengthsList=[]
+            personList=[]
+            sceneList=[]
+            # ans -> eye click goal isEnd length
+            for i in range(len(envs)):
+                ans=envs[i].act()
+                if isinstance(ans,bool):
+                    envs[i].load_dict()
+                    envs[i].get_file()
+                    beginFlags[i]=True
+                    continue
                 else:
-                    doneFlag=1
+                    # print(ans[0],len(ans[0]))
+                    eye=torch.tensor(ans[0],dtype=torch.long)
+                    click=torch.tensor(ans[1],dtype=torch.long).to(device)
+                    lengths=torch.tensor(ans[4],dtype=torch.long)
+                    person=torch.tensor([personNum[i]],dtype=torch.long).to(device)
+                    scene=torch.tensor([sceneNum[i]],dtype=torch.long).to(device)
+                    if pr.flag[i]==False:
+                        pr.init(i,ans[1])
+                    lastP=torch.tensor(pr.getLastPresents(i),dtype=torch.long).to(device)
+                    lastPList.append(lastP)
+                    eyeList.append(eye)
+                    clickList.append(click)
+                    lengthsList.append(lengths)
+                    personList.append(person)
+                    sceneList.append(scene)
+                    # ans -> eye click goal isEnd
+                    doneFlag=0
+                    if ans[3]==1:
+                        doneFlag=0
+                    else:
+                        doneFlag=1
+                    # print(ans[3])
+                    # click,eye,goal,action,mask
+                    # print(lengths)
+                    trajectorys[i].push(click,eye,ans[2],0,doneFlag*UTIL.GAMMA,lastP,lengths,person,scene)
+                    indexes.append(i)
+                    if ans[3]==1:
+                        beginFlags[i]=True
+            # print(clickList)
+            clickCat=torch.stack(clickList,dim=0).to(device)
+            lastPCat=torch.stack(lastPList,dim=0).to(device)
+            lengthStack=torch.stack(lengthsList,dim=0)
+            personStack=torch.stack(personList,dim=0).to(device).unsqueeze(1)            
+            sceneStack=torch.stack(sceneList,dim=0).to(device).unsqueeze(1)       
+            eyeList=torch.stack(eyeList,dim=0).to(device)
+            actions=agent.act(clickCat,eyeList,lastPCat,lengthStack,personStack,sceneStack)
+            # print(f' aaaaa {actions}')
+            for actS,index in zip(actions,indexes):
+                pr.add(index,actS)
                 eposilon=np.interp(K,[0,EPOSILON_DECAY],[EPOSILON_START,EPOSILON_END])
                 prob=random.random()
                 if prob>eposilon:
-                    trajectory.push(ans[1],ans[0],ans[2],action,doneFlag*UTIL.GAMMA)
+                    trajectorys[index].tras[-1][3]=dp(actS)
                 else:
-                    trajectory.push(ans[1],ans[0],ans[2],random.randint(0,12),doneFlag*UTIL.GAMMA)
-                numRecorder+=1
-                if ans[3]==1:
-                    numRecorder=0
-                    trajectory.getNewTras()
-                    traInfo=trajectory.getInfo()
+                    trajectorys[index].tras[-1][3]=random.randint(0,12)
+                if trajectorys[index].tras[-1][4]==0:
+                    trajectorys[index].getNewTras()
+                    # 0:traLen
+                    # 1:noActionNum
+                    # 2:noActionNumWithThreshold
+                    # 3:lastWithNoAction
+                    # 4:_in
+                    # 5:_out
+                    # 6:inOut
+                    # 7:reward
+                    # 8:endRewards
+                    # 9:inNoAct
+                    # 10:outNoAct
+                    # 11:errors
+                    # 12:endInOutNoAct
+                    traInfo=trajectorys[index].getInfo()
                     if traInfo[0]>1:
                         traLenOverOne+=traInfo[0]
                         noActionNum+=traInfo[1]
@@ -207,52 +309,117 @@ def train_epoch(agent:Agent, lr, epochs, batch_size,device,mode,envP,store_path=
                     lastWithNoAction+=traInfo[3]
                     totalIn+=traInfo[4]
                     totalOut+=traInfo[5]
+                    inS[sceneNum[index]]+=traInfo[4]
+                    outS[sceneNum[index]]+=traInfo[5]
+
                     endIn+=traInfo[6]
                     endOut+=int(traInfo[6])^1
+                    endInS[sceneNum[index]]+=traInfo[6]
+                    endOutS[sceneNum[index]]+=int(traInfo[6])^1
+
                     rewards.append(traInfo[7])
                     endAveReward.append(traInfo[8])
+                    processReward.append(traInfo[7]-traInfo[8])
                     inNoAct+=traInfo[9]
                     outNoAct+=traInfo[10]
                     if traInfo[0]>=3:
                         traLenOverThree+=traInfo[0]
                         totalErrors+=traInfo[11]
-                    TDZero=trajectory.getComTraZero()
+                        lenS[sceneNum[index]]+=traInfo[0]
+                        errorsS[sceneNum[index]]+=traInfo[11]
+
+                    TDZeroList=trajectorys[index].getComTraZero()
                     if traInfo[12]!=-1:
                         endInNoAct+=traInfo[12]
                         endOutNoAct+=int(traInfo[12])^1
-                    for tra in TDZero:
-                        agentBuffer.push(tra)
-                    trajectory.clear()
+                    
+                    agentBuffer.push(TDZeroList)
+                    trajectorys[index].clear()
             dbatch_size=int((1+(agentBuffer.getRatio()))*batch_size)
             if (agentBuffer.holding>=dbatch_size):
+                # print('train')
                 if not is_training:
                     with open(reward_path,'a') as f:
                         f.write('begin to train\n')
                     is_training=True
-                click,eye,action,nextClick,nextEye,mask,reward,seq,nseq = agentBuffer.sample(dbatch_size)
+                clickList,eyeList,lastPList,lengths,person,scene,actionList,rewardList,maskList,\
+                    nclickList,neyeList,nlastPList,nlengths,nperson,nscene= agentBuffer.sample(dbatch_size)
+                deltaP = torch.rand(remBlocskNum).to(device)
+                deltaP =deltaP/ deltaP.sum()
                 with torch.no_grad():
-                    onlineValues=agent.online(nextClick,nextEye,nseq)
+                    onlineValues=agent.online(clickList,eyeList,lastPList,lengths,person,scene)
+                    onlineValues=sum(onlineValues)/len(onlineValues)
                     yAction=torch.argmax(onlineValues,dim=-1,keepdim=True)
-                    targetValues=agent.target(nextClick,nextEye,nseq)
-                    y=targetValues.gather(dim=-1,index=yAction)*mask+reward
-                values=agent.online(click,eye,seq).gather(dim=-1,index=action)
+                    targetValues=agent.target(nclickList,neyeList,nlastPList,nlengths,nperson,nscene)
+                    for i in range(remBlocskNum):
+                        targetValues[i]=targetValues[i]*deltaP[i]
+                    targetValues=sum(targetValues)
+                    y=targetValues.gather(dim=-1,index=yAction)*maskList+rewardList
+                values=agent.online(clickList,eyeList,lastPList,lengths,person,scene)
+                for i in range(remBlocskNum):
+                    values[i]=values[i]*deltaP[i]
+                values=sum(values)
+                values=values.gather(dim=-1,index=actionList)
                 l = loss(values, y)
+                # if steps%100==0:
+                #     print(f'loss {l}')
+                #     for name,param in agent.online.named_parameters():
+                #         if param.requires_grad and param.grad is not None:
+                #             print(f'name {name} grad {param.grad}')
+
                 trainer.zero_grad()
                 l.backward()
                 trainer.step()
-                if  steps%10==0 and steps!=0:
+                # clp.add(l.cpu().detach().numpy().tolist())
+                if  steps%5==0 and steps!=0:
                     agent.update()
+
+        # eye click goal isEnd
         t_reward_len+=1
-        if t_reward_len>=1000:
-            t_reward_len%=1000
+        if t_reward_len>=20:
+            t_reward_len%=20
             t_reward[t_reward_len]=np.mean(rewards)
             t_end_reward[t_reward_len]=np.mean(endAveReward)
         else:
             t_reward.append(np.mean(rewards))
             t_end_reward.append(np.mean(endAveReward))
-        if len(t_reward)>0 and t_reward[-1]>best_scores and is_training:
+
+
+        '''
+        endAveReward=[]
+        endIn=0
+        endOut=0
+        totalIn=0
+        totalOut=0
+        traLenOverOne=0
+        noActionNum=0
+        noActionNumWithThreshold=0
+        lastWithNoAction=0
+        inNoAct=0
+        outNoAct=0
+        totalErrors=0
+        traLenOverThree=0
+        endInNoAct=0
+        endOutNoAct=0
+        
+        '''
+        # errorR=[0 for i in range(5)]
+        # accR=[0 for i in range(5)]
+        # endAccR=[0 for i in range(5)]
+
+        errorR='\nerror: '
+        accR='\nIPA1: '
+        endAccR='\nIPA2: '
+
+        for i in range(1,5):
+            endAccR+=str(i)+' '+str(round(endInS[i]/(endInS[i]+endOutS[i]) if (endInS[i]+endOutS[i])>0  else 0 ,2))+' '
+            accR+=str(i)+' '+str(round(inS[i]/(inS[i]+outS[i]) if (inS[i]+outS[i])>0  else 0 ,2))+' '
+            errorR+=str(i)+' '+str(round(errorsS[i]/lenS[i] if lenS[i]>0  else 0 ,2))+' '
+    
+
+        if len(t_reward)>0 and np.mean(t_reward)>best_scores and is_training:
             torch.save(agent.target.state_dict(), m_store_path_a)
-            best_scores= t_reward[-1]
+            best_scores=np.mean(t_reward)
             with open(updataInfo,'a',encoding='UTF-8') as updateInfoFile:
                 updateInfoFile.write('eposides:'+str(K+1)+' ave_eposides_rewards:'+str(round(np.mean(t_reward),2))+\
                 ' ave reward '+str(round(t_reward[-1],2)) +'\n end_reward:' +str(round(np.mean(t_end_reward[-1]),2))+' '+\
@@ -263,7 +430,8 @@ def train_epoch(agent:Agent, lr, epochs, batch_size,device,mode,envP,store_path=
                 ' in_no_act:'+str(inNoAct)+' out_no_act:'+str(outNoAct)+' acc:'+str(round(inNoAct/(inNoAct+outNoAct),2))+'\n'+\
                 ' len_tra_over_one: '+str(traLenOverOne)+' no_action_num:'+str(noActionNum)+' no_action_num_80:'+str(noActionNumWithThreshold)+\
                 ' acc:'+str(round(noActionNum/traLenOverOne,2))+' acc2:'+str(round(noActionNumWithThreshold/traLenOverOne,2))+'\n'+\
-                ' len_tra_over_three: '+str(traLenOverThree)+' total_errors: '+str(totalErrors)+' acc: '+str(round(totalErrors/traLenOverThree,2))+'\n')
+                ' len_tra_over_three: '+str(traLenOverThree)+' total_errors: '+str(totalErrors)+' acc: '+str(round(totalErrors/traLenOverThree,2))+\
+                errorR+accR+endAccR+'\n')
         with open(reward_path,'a',encoding='UTF-8') as rewardInfoFile:
             rewardInfoFile.write('eposides:'+str(K+1)+' ave_eposides_rewards:'+str(round(np.mean(t_reward),2))+\
                 ' ave reward '+str(round(t_reward[-1],2)) +'\n end_reward:' +str(round(np.mean(t_end_reward[-1]),2))+' '+\
@@ -274,58 +442,84 @@ def train_epoch(agent:Agent, lr, epochs, batch_size,device,mode,envP,store_path=
                 ' in_no_act:'+str(inNoAct)+' out_no_act:'+str(outNoAct)+' acc:'+str(round(inNoAct/(inNoAct+outNoAct),2))+'\n'+\
                 ' len_tra_over_one: '+str(traLenOverOne)+' no_action_num:'+str(noActionNum)+' no_action_num_80:'+str(noActionNumWithThreshold)+\
                 ' acc:'+str(round(noActionNum/traLenOverOne,2))+' acc2:'+str(round(noActionNumWithThreshold/traLenOverOne,2))+'\n'+\
-                ' len_tra_over_three: '+str(traLenOverThree)+' total_errors: '+str(totalErrors)+' acc: '+str(round(totalErrors/traLenOverThree,2))+'\n')
-       
-
+                ' len_tra_over_three: '+str(traLenOverThree)+' total_errors: '+str(totalErrors)+' acc: '+str(round(totalErrors/traLenOverThree,2))+\
+                errorR+accR+endAccR+'\n')
 
 if __name__=='__main__':
+
+
+    def str2bool(v):
+        if isinstance(v,bool):
+            return v
+        if v.lower() in ('true','True','yes'):
+            return True
+        elif v.lower() in ('no','false','False'):
+            return False
+        else:
+            raise argparse.ArgumentTypeError('Boolean value expected.')
     parser=argparse.ArgumentParser()
     parser.add_argument('-modelPath',type=str,default='20231022203322')
-    parser.add_argument('-cuda',type=str,default='cuda:0')
+    parser.add_argument('-cuda',type=str,default='cuda:1')
     parser.add_argument('-mode',type=int,default=1)
     parser.add_argument('-net',type=int,default=1)
     parser.add_argument('-sup',type=str,default='50')
-    parser.add_argument('-preload',type=bool,default=False)
-    parser.add_argument('-lr',type=float,default=0.05)
+    parser.add_argument('-preload',type=str2bool,default=False)
+    parser.add_argument('-lr',type=float,default=0.0005)
+    parser.add_argument('-layers',type=int,default=5)
+    parser.add_argument('-embed',type=int,default=128)
+    parser.add_argument('-rems',type=int,default=5)
+    parser.add_argument('-epochs',type=int,default=500)
+    parser.add_argument('-batchsize',type=int,default=256)
+    parser.add_argument('-restrict',type=str2bool,default=False)
+    parser.add_argument('-appF',type=str2bool,default=False)
+    parser.add_argument('-appP',type=str,default='restrict2')
+    parser.add_argument('-thr',type=str2bool,default=False)
 
     args=parser.parse_args()
+    # device=torch.device('cpu')
     device = torch.device(args.cuda if torch.cuda.is_available() else 'cpu')
-    agent=Agent(device=device)
+    agent=REMAgent2(device=device,rnn_layer=args.layers,embed_n=args.embed)
     store=UTIL.getTimeStamp()
 
     if args.preload:
-        actor_load=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain/',args.modelPath)
-        actor_load=os.path.join(actor_load,'200pretrain.pt')
-        agent.load(actor_load)
-
-    for i in range(2,22):
+        agent.load('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231221/trainallscene/restrict2/dqnnetoffline.pt')
+    # else:
+    #     actor_load='/home/wu_tian_ci/drl_project/mymodel/ddpg/pretrain_data/ddpg_train/1last_move5/ActorNet.pt'
+    mainPath=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/',store[0:-6],'trainallscene')
+    if not os.path.exists(mainPath):
+        os.makedirs(mainPath)
+    fileNum=len(os.listdir(mainPath))
+    if args.appF==False:
+        store_path=os.path.join(mainPath,str(fileNum))
+    else:
+        store_path=os.path.join(mainPath,args.appP)
+    # json_path=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/json_path/',store[0:-6],'trainallscene',store[-6:])
+    # value_path=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/value_path/',store[0:-6],'trainallscene',store[-6:])
+    # critic_loss_path=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/critic_loss/',store[0:-6],'trainallscene',store[-6:])
+    # if not os.path.exists(json_path):
+    #     os.makedirs(json_path)
+    # if not os.path.exists(value_path):
+    #     os.makedirs(value_path)
+    # if not os.path.exists(critic_loss_path):
+    #     os.makedirs(critic_loss_path)
+    print(args.sup)
+    print(store[-6:])
+    envs=[]
+    exclude=[]
+    
+    for i in range(2,17):
         if i<10:
-            env='0'+str(i)
+            envs.append('0'+str(i))
         else:
-            env=str(i)
-        agent=Agent(device=device)
-
-        if args.preload:
-            actor_load=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain/',args.modelPath)
-            actor_load=os.path.join(actor_load,'200pretrain.pt')
-            agent.load(actor_load)
-        store_path=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/',store[0:-6],'test1',env,store[-6:])
-        json_path=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/json_path/',store[0:-6],'test1',env,store[-6:])
-        value_path=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/value_path/',store[0:-6],'test1',env,store[-6:])
-        critic_loss_path=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/critic_loss/',store[0:-6],'test1',env,store[-6:])
-        if not os.path.exists(json_path):
-            os.makedirs(json_path)
-        if not os.path.exists(value_path):
-            os.makedirs(value_path)
-        if not os.path.exists(critic_loss_path):
-            os.makedirs(critic_loss_path)
-
-
-        if not os.path.exists(store_path):
-            os.makedirs(store_path)
-        with open(os.path.join(store_path,'envsinfo.txt'),'w') as f:
-            f.write('envs'+str(env)+'\n'+'lr:'+str(args.lr)+' preload: '+str(args.preload))
-            if args.sup!='50':
-                f.write('\n'+args.sup)
-        train_epoch(agent, args.lr, 20, 256,device,args.mode,store_path=store_path,envP=env,\
-                    json_path=json_path,value_path=value_path,critic_loss_path=critic_loss_path)
+            envs.append(str(i))
+    print(device)
+    envs=['23']
+    if not os.path.exists(store_path):
+        os.makedirs(store_path)
+    with open(os.path.join(store_path,'envsinfo.txt'),'w') as f:
+        f.write('envs'+str(envs)+'\n trainEnvs:'+str(envs)+'\n'+' lr:'+str(args.lr)+' preload: '+str(args.preload)+' device:'+str(device)\
+                +' layers: '+str(args.layers)+" embded: "+str(args.embed)+' rems'+str(args.rems)+'\nexclude: '+str(exclude))
+        if args.sup!='50':
+            f.write('\n'+args.sup)
+    train_epoch(agent, args.lr, args.epochs, args.batchsize,device,args.mode,store_path=store_path,multienvs=envs,\
+               remBlocskNum=args.rems,restrict=args.restrict,thr=args.thr)

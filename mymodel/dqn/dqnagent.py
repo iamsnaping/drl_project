@@ -129,11 +129,11 @@ class REMAgent(object):
 
      
 class REMAgent2(object):
-    def __init__(self,device,embed_n=64,rnn_layer=10,networksNum=5) -> None:
+    def __init__(self,device,embed_n=128,rnn_layer=5,networksNum=5,idFlag=True) -> None:
         # device,embed_n=64,rnn_layer=10
 
-        self.target=REMNet2(embed_n=embed_n,rnn_layer=rnn_layer,device=device,remBlocskNum=networksNum)
-        self.online=REMNet2(embed_n=embed_n,rnn_layer=rnn_layer,device=device,remBlocskNum=networksNum)
+        self.target=REMNet2(embed_n=embed_n,rnn_layer=rnn_layer,device=device,remBlocskNum=networksNum,idFlag=idFlag)
+        self.online=REMNet2(embed_n=embed_n,rnn_layer=rnn_layer,device=device,remBlocskNum=networksNum,idFlag=idFlag)
         self.target.apply(weight_init).to(device)
         self.online.apply(weight_init).to(device)
         self.device=device
@@ -150,6 +150,7 @@ class REMAgent2(object):
     
 
     def act(self,click,eye,clickP,lengths,person,scene):
+        # print(click,eye,clickP,lengths,person,scene)
         actions=self.online(click,eye,clickP,lengths,person,scene)
         actions=sum(actions)/len(actions)
         maxAction=torch.argmax(actions,dim=-1)
