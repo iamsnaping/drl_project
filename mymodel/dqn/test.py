@@ -33,5 +33,5 @@ import pandas as pd
 # for i in [0,1,2,3,6,9]:
 #     print(hashDic[i])
 
-a=np.array([[4,5,6],[2,3,4],[1,2,3]])
-print(np.mean(a,axis=0))
+a=[1,2,3,4,5,6]
+print(np.min(a))

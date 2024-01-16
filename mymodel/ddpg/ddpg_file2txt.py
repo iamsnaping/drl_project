@@ -799,7 +799,7 @@ class FileToTxt:
         # print(points_list)
         # if not os.path.exists(self.trans_path):
         #     os.makedirs(self.trans_path)
-        save_path=os.path.join(self.trans_path,str(int(self.trans_nums))+'.txt')
+        # save_path=os.path.join(self.trans_path,str(int(self.trans_nums))+'.txt')
         d={}
         i=0
         for points in points_list:

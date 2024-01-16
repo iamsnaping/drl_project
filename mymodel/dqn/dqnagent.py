@@ -1,23 +1,14 @@
 from typing import Any
 import torch
 from torch import nn
-import os
-import sys
-from tqdm import tqdm
-import collections
-sys.path.append('/home/wu_tian_ci/drl_project')
-from torch.utils.data import Dataset
 import numpy as np
 from mymodel.ddpg.ddpg_base_net import *
-import matplotlib.pyplot as plt
-import matplotlib
 from dqnbasenet import *
-
-os.chdir(sys.path[0])
-
+from dqnutils import *
+import dqnutils as UTILs
 
 from mymodel.ddpg.ddpg_pretrain_critic import *
-from mymodel.ddpg.ddpg_pretrain_policy import*
+from mymodel.ddpg.ddpg_pretrain_policy import *
 def weight_init(m):
     random.seed(1114)
     np.random.seed(1114)
@@ -101,6 +92,7 @@ class REMAgent(object):
         self.online.apply(weight_init).to(device)
         self.device=device
 
+
     
     def load(self,loadPath):
         self.target.load_state_dict(torch.load(loadPath))
@@ -127,15 +119,28 @@ class REMAgent(object):
         self.target.train()
         self.online.train()
 
-     
-class REMAgent2(object):
-    def __init__(self,device,embed_n=128,rnn_layer=5,networksNum=5,idFlag=True) -> None:
-        # device,embed_n=64,rnn_layer=10
 
-        self.target=REMNet2(embed_n=embed_n,rnn_layer=rnn_layer,device=device,remBlocskNum=networksNum,idFlag=idFlag)
-        self.online=REMNet2(embed_n=embed_n,rnn_layer=rnn_layer,device=device,remBlocskNum=networksNum,idFlag=idFlag)
+class REMAgent2(object):
+    def __init__(self,device,flag,embed_n=128,rnn_layer=5,networksNum=5):
+        # device,embed_n=64,rnn_layer=10
+        if flag==UTILs.AgentFlag.REMNet2.value:
+            self.target=REMNet2(embed_n=embed_n,rnn_layer=rnn_layer,device=device,remBlocskNum=networksNum)
+            self.online=REMNet2(embed_n=embed_n,rnn_layer=rnn_layer,device=device,remBlocskNum=networksNum)
+        elif flag==UTILs.AgentFlag.REMNet2_NO_LP.value:
+            self.target=REMNet2_NO_LP(embed_n=embed_n,rnn_layer=rnn_layer,device=device,remBlocskNum=networksNum)
+            self.online=REMNet2_NO_LP(embed_n=embed_n,rnn_layer=rnn_layer,device=device,remBlocskNum=networksNum)
+        elif flag==UTILs.AgentFlag.REMNet2_NO_PID.value:
+            self.target=REMNet2_NO_PID(embed_n=embed_n,rnn_layer=rnn_layer,device=device,remBlocskNum=networksNum)
+            self.online=REMNet2_NO_PID(embed_n=embed_n,rnn_layer=rnn_layer,device=device,remBlocskNum=networksNum)
+        elif flag==UTILs.AgentFlag.REMNet2_NO_SPID.value:
+            self.target=REMNet2_NO_SPID(embed_n=embed_n,rnn_layer=rnn_layer,device=device,remBlocskNum=networksNum)
+            self.online=REMNet2_NO_SPID(embed_n=embed_n,rnn_layer=rnn_layer,device=device,remBlocskNum=networksNum)
+        elif flag==UTILs.AgentFlag.REMNet2_NO_SID.value:
+            self.target=REMNet2_NO_SID(embed_n=embed_n,rnn_layer=rnn_layer,device=device,remBlocskNum=networksNum)
+            self.online=REMNet2_NO_SID(embed_n=embed_n,rnn_layer=rnn_layer,device=device,remBlocskNum=networksNum)
         self.target.apply(weight_init).to(device)
         self.online.apply(weight_init).to(device)
+        self.probs=[]
         self.device=device
 
     
@@ -154,9 +159,13 @@ class REMAgent2(object):
         actions=self.online(click,eye,clickP,lengths,person,scene)
         actions=sum(actions)/len(actions)
         maxAction=torch.argmax(actions,dim=-1)
+        self.probs=actions.squeeze().cpu().detach().numpy()
         action=maxAction.squeeze().cpu().detach().numpy()
         return action
     
+    def getProbs(self):
+        return self.probs
+
     def eval(self):
         self.target.eval()
         self.online.eval()
@@ -165,4 +174,51 @@ class REMAgent2(object):
         self.target.train()
         self.online.train()
 
- 
+
+class PolicyAgent(object):
+    def __init__(self,device,embed_n=128,rnn_layer=5,networksNum=5,flag=1):
+        if flag==1:
+            self.target=PolicyNet(embed_n=embed_n,rnn_layer=rnn_layer,device=device,remBlocskNum=networksNum)
+            self.online=PolicyNet(embed_n=embed_n,rnn_layer=rnn_layer,device=device,remBlocskNum=networksNum)
+        elif flag==2:
+            self.target=PolicyNet2(embed_n=embed_n,rnn_layer=rnn_layer,device=device,remBlocskNum=networksNum)
+            self.online=PolicyNet2(embed_n=embed_n,rnn_layer=rnn_layer,device=device,remBlocskNum=networksNum)
+        self.target.apply(weight_init).to(device)
+        self.online.apply(weight_init).to(device)
+        self.device=device
+
+    
+    def load(self,loadPath):
+        self.target.load_state_dict(torch.load(loadPath))
+        self.online.load_state_dict(torch.load(loadPath))
+        self.target.to(self.device)
+        self.online.to(self.device)
+
+    def update(self):
+        self.target.load_state_dict(self.online.state_dict())
+    
+
+    def act(self,click,eye,lengths,person,scene):
+        # print(click,eye,clickP,lengths,person,scene)
+        actions=self.online(click,eye,lengths,person,scene)
+        maxAction=torch.argmax(actions,dim=-1)
+        action=maxAction.squeeze().cpu().detach().numpy()
+        return action
+    
+    def getProbs(self):
+        return self.probs
+
+    def eval(self):
+        self.target.eval()
+        self.online.eval()
+    
+    def train(self):
+        self.target.train()
+        self.online.train()
+
+
+
+if __name__=='__main__':
+    device='cpu'
+    for flag in UTIL.AgentFlag:
+        REMAgent2(device=device,rnn_layer=12,embed_n=32,flag=flag.value)

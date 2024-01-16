@@ -1,2 +1,12 @@
 mymodel/dqn/pretrain_data
 mymodel/dqn/dqnonline/onlinedata
+*.sh
+*.pyc
+*.txt
+/home/wu_tian_ci/drl_project/mymodel/sac
+/home/wu_tian_ci/drl_project/mymodel/envdataset
+/home/wu_tian_ci/drl_project/mymodel/ddpg
+/home/wu_tian_ci/drl_project/wtcutils
+/home/wu_tian_ci/drl_project/test
+*.png
+

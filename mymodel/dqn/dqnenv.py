@@ -36,14 +36,14 @@ from tqdm import tqdm
 
 class DQNRNNEnv(object):
     #所有指针都指向下一个元素
-    def __init__(self,base_path,num=0,scene=0,MODE=1,restrict=False,disMode=False):
+    # padding-> true->pad num when goal is not enough
+    def __init__(self,base_path,num=0,scene=0,MODE=1,restrict=True,disMode=False,padding=False):
         self.num=num
         self.scene=scene
         self.file_finish = False
         self.files=[]
         self.files_len=0
         self.df=None
-        self.nums=0
         self.bwidth=120
         self.bheight=120
         self.state_space=60
@@ -68,7 +68,7 @@ class DQNRNNEnv(object):
         self.isend_total=0
         self.k1=0.
         self.k2=0
-        self.mode=3
+        self.mode=False
         self.states_idx=0
         self.states_len=0
         self.files_path=[]
@@ -94,6 +94,9 @@ class DQNRNNEnv(object):
         self.disMode=disMode
         self.beginPoint=[-1,-1]
         self.endPoint=[-1,-1]
+        self.padding=padding
+
+        self.paddingNum=13
     
     def setMODE(self,MODE):
         self.MODE=MODE
@@ -113,7 +116,7 @@ class DQNRNNEnv(object):
         elif self.eval==True:
             dirs=os.listdir(self.base_path)
             for dir in dirs:
-                if dir[-6]=='_':
+                if self.mode and dir[-6]=='_':
                     if (dir[-5]=='0' or dir[-5]==str(self.MODE)):
                         self.files_path.append(os.path.join(self.base_path,dir))
                 else:
@@ -122,8 +125,8 @@ class DQNRNNEnv(object):
         else:
             dirs=os.listdir(self.base_path)
             for dir in dirs:
-                if dir[-6]=='_':
-                    if (dir[-5]=='0' or dir[-5]==str(self.MODE)):
+                if self.mode and dir[-6]=='_':
+                    if dir[-5]=='0' or dir[-5]==str(self.MODE):
                         self.files_path.append(os.path.join(self.base_path,dir))
                 else:
                     self.files_path.append(os.path.join(self.base_path,dir))
@@ -143,10 +146,21 @@ class DQNRNNEnv(object):
         if self.current_file >= self.current_dir_len:
             self.finish = True
             return False
-        self.df=pd.read_csv(self.files_path[self.current_file],header=None)
+        if  os.path.exists(self.files_path[self.current_file]):
+            self.df=pd.read_csv(self.files_path[self.current_file],header=None)
+        else:
+            self.files_path.pop(self.current_file)
+            self.current_dir_len-=1
+            if self.current_file >= self.current_dir_len:
+                self.finish = True
+                return False
         current_path=self.files_path[self.current_file]
         self.round_refresh()
         self.cfile_len = len(self.df)
+        if self.padding:
+            self.last_goal_list=[]
+            for i in range(3):
+                self.last_goal_list.append(self.paddingNum)
         return True
 
     def round_refresh(self):
@@ -272,6 +286,8 @@ class DQNRNNEnv(object):
                         self.begin_idx=self.goal_nums
                 self.begin_idx=self.goal_nums
             # print(self.goal_nums,self.cfile_len)
+            if self.file_finish:
+                return
             if t==0 and self.last_goal_list[-1]!=self.goal :
                 if self.goal in self.restrictArea:
                     if not self.restrict:
@@ -281,6 +297,12 @@ class DQNRNNEnv(object):
 
             # while flag:
             self.get_goal()
+            if self.padding and (self.last_goal_list[-1]==13):
+                while self.restrict and (self.goal in self.restrictArea) and self.file_finish:
+                    self.begin_idx=self.goal_nums
+                    self.get_goal()
+            if self.file_finish:
+                return 
             if self.end_idx!=0:
                 self.begin_idx=self.end_idx
             self.end_idx=self.goal_nums
@@ -390,10 +412,33 @@ class DQNRNNEnv(object):
 
 
 if __name__ == '__main__':
-    print(os.listdir('/home/wu_tian_ci/eyedatanew/23/1'))
-    for dir in os.listdir('/home/wu_tian_ci/eyedatanew/23/1'):
-        print(dir)
-        print(dir[-6]=='-',dir[-5]=='0')
+    ...
+    env=DQNRNNEnv('/home/wu_tian_ci/eyedata/seperate/02/1',restrict=True,padding=False)
+    env.load_dict()
+    flag=env.get_file()
+    t=0
+    while True:
+        flag=env.act()
+        if flag:
+            t+=1
+        else:
+            break
+    print(f't1 {t}')
+    env=DQNRNNEnv('/home/wu_tian_ci/eyedata/seperate/02/1',restrict=True,padding=False)
+    env.load_dict()
+    flag=env.get_file()
+    t=0
+    while True:
+        flag=env.act()
+        if flag:
+            t+=1
+        else:
+            break
+    print(f't2 {t}')
+    # print(os.listdir('/home/wu_tian_ci/eyedatanew/23/1'))
+    # for dir in os.listdir('/home/wu_tian_ci/eyedatanew/23/1'):
+    #     print(dir)
+    #     print(dir[-6]=='-',dir[-5]=='0')
     # env2=DQNRNNEnv('/home/wu_tian_ci/eyedatanew/01/1')
     # env2.load_dict()
     # env2.get_file()

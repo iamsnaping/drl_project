@@ -133,19 +133,21 @@ def testFun(agent):
     testAllEnvs=[]
     testAllNum=[]
     testAllScene=[]
-    testEnvs=['6', '11', '7', '4', '13']
+    testEnvs=['06', '11', '07', '04', '13']
+    indexDict={}
+    k=0
+    for _ in testEnvs:
+        indexDict[int(_)] =k
+        k+=1
     for scene in range(1,5):
         for env in testEnvs:
             testEnvPath=os.path.join('/home/wu_tian_ci/eyedata/seperate',env,str(scene))
             testAllEnvs.append(DQNRNNEnv(testEnvPath,num=int(env),scene=int(scene),restrict=True))
             testAllNum.append(int(env))
             testAllEnvs[-1].shuffle=False
-            testAllEnvs[-1].topN=0
+            testAllEnvs[-1].topN=5
             testAllEnvs[-1].eval=True
-            testAllEnvs[-1].mode=True
             testAllScene.append(scene)
-            testAllNum.append(int(env))
-            testAllScene.append(int(scene))
 
     preTest=PresentsRecorder(len(testAllEnvs))
     stopFlags=[False for i in range(len(testAllEnvs))]
@@ -232,13 +234,13 @@ def testFun(agent):
                 testTras[testIndex].getNewTras()
                 traInfoTest=testTras[testIndex].getInfo()
                 rewards.append(traInfoTest[7])
-                testInS[testAllNum[testIndex]-np.min(testAllNum)][testAllScene[testIndex]]+=traInfoTest[4]
-                testOutS[testAllNum[testIndex]-np.min(testAllNum)][testAllScene[testIndex]]+=traInfoTest[5]
-                testEndInS[testAllNum[testIndex]-np.min(testAllNum)][testAllScene[testIndex]]+=traInfoTest[6]
-                testEndOutS[testAllNum[testIndex]-np.min(testAllNum)][testAllScene[testIndex]]+=int(traInfoTest[6])^1
+                testInS[indexDict[testAllNum[testIndex]]][testAllScene[testIndex]]+=traInfoTest[4]
+                testOutS[indexDict[testAllNum[testIndex]]][testAllScene[testIndex]]+=traInfoTest[5]
+                testEndInS[indexDict[testAllNum[testIndex]]][testAllScene[testIndex]]+=traInfoTest[6]
+                testEndOutS[indexDict[testAllNum[testIndex]]][testAllScene[testIndex]]+=int(traInfoTest[6])^1
                 if traInfoTest[0]>=3:
-                    testLenS[testAllNum[testIndex]-np.min(testAllNum)][testAllScene[testIndex]]+=traInfoTest[0]
-                    testErrorsS[testAllNum[testIndex]-np.min(testAllNum)][testAllScene[testIndex]]+=traInfoTest[11]
+                    testLenS[indexDict[testAllNum[testIndex]]][testAllScene[testIndex]]+=traInfoTest[0]
+                    testErrorsS[indexDict[testAllNum[testIndex]]][testAllScene[testIndex]]+=traInfoTest[11]
                 testTras[testIndex].clear()
     return testEndInS,testEndOutS,testInS,testOutS,testErrorsS,testLenS,np.mean(rewards)
 
@@ -246,8 +248,16 @@ def testFun(agent):
 
 
 
-def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,remBlocskNum=5,store_path=None,restrict=False):
-
+def train_epoch(agent, lr, epochs, batch_size,device,mode,multienvs,remBlocskNum=5,store_path=None,restrict=False):
+    modelPath=os.path.join(store_path,'model.pt')
+    testEnvs=['06', '11', '07', '04', '13']
+    preTestInfos=[]
+    for t in testEnvs:
+        preTestInfo=os.path.join(store_path,t+'.txt')
+        preTestInfos.append(preTestInfo)
+        f=open(preTestInfo,'w')
+        f.write('begin\n')
+        f.close()
     agent.online.to(device)
     agent.target.to(device)
     EPOSILON_DECAY=epochs
@@ -259,18 +269,7 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,rem
     agentBuffer=ReplayBufferRNN2(2**19,device)
     if not os.path.exists(store_path):
         os.makedirs(store_path)
-    m_store_path_a=os.path.join(store_path,'dqnnetoffline.pt')
-    reward_path=os.path.join(store_path,'reward.txt')
-    updataInfo=os.path.join(store_path,'updateInfo.txt')
-    f=open(reward_path,'w')
-    env_str=''
-    for e in multienvs:
-        env_str+=e+' '
-    f.write(env_str+'\n')
-    f.close()
-    f=open(updataInfo,'w')
-    f.write(env_str+'\n')
-    f.close()
+
     t_reward=[]
     t_end_reward=[]
     t_reward_len=-1
@@ -285,9 +284,10 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,rem
     for scene in range(1,5):
         for env in multienvs:
             envPath=os.path.join('/home/wu_tian_ci/eyedata/seperate/',env,str(scene))
-            # envPath=os.path.join('/home/wu_tian_ci/eyedatanew/23',str(scene))
             envs.append(DQNRNNEnv(envPath,restrict=restrict))
-            envs[-1].shuffle=True
+            envs[-1].shuffle=False
+            envs[-1].eval=False
+            envs[-1].topN=5
             envFlags.append(False)
             envPaths.append(envPath)
             trajectorys.append(DQNRNNTrajectory2())
@@ -332,8 +332,8 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,rem
         outS=[0 for i in range(5)]
         errorsS=[0 for i in range(5)]
         lenS=[0 for i in range(5)]
-
-        for steps in range(500):
+        agent.train()
+        for steps in range(200):
             eyeList=[]
             clickList=[]
             indexes=[]
@@ -443,8 +443,6 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,rem
             if (agentBuffer.holding>=dbatch_size):
                 # print('train')
                 if not is_training:
-                    with open(reward_path,'a') as f:
-                        f.write('begin to train\n')
                     is_training=True
                 clickList,eyeList,lastPList,lengths,person,scene,actionList,rewardList,maskList,\
                     nclickList,neyeList,nlastPList,nlengths,nperson,nscene= agentBuffer.sample(dbatch_size)
@@ -517,33 +515,21 @@ def train_epoch(agent:RNNAgent, lr, epochs, batch_size,device,mode,multienvs,rem
 
         testEndInS,testEndOutS,testInS,testOutS,testErrorsS,testLenS,testRewards=testFun(agent)
         
-        if len(t_reward)>0 and np.mean(t_reward)>best_scores and is_training:
-            torch.save(agent.target.state_dict(), m_store_path_a)
-            best_scores=np.mean(t_reward)
-            with open(updataInfo,'a',encoding='UTF-8') as updateInfoFile:
-                updateInfoFile.write('eposides:'+str(K+1)+' ave_eposides_rewards:'+str(round(np.mean(t_reward),2))+\
-                ' ave reward '+str(round(t_reward[-1],2)) +'\n end_reward:' +str(round(np.mean(t_end_reward[-1]),2))+' '+\
-                ' ave_eposides_end_reward:'+str(round(np.mean(t_end_reward),2))+'\n'+\
-                ' end_in: '+str(endIn)+' end_out: '+str(endOut)+' train_end_acc: '+str(round(endIn/(endOut+endIn),2))+\
-                ' end_in_no_action: '+str(endInNoAct)+' end_out_no_act: '+str(endOutNoAct)+' acc:'+str(round(endInNoAct/(endInNoAct+endOutNoAct),2))+'\n'+\
-                ' in: '+str(totalIn)+' _out:'+str(totalOut)+' train_ave_acc:'+str(round(totalIn/(totalIn+totalOut),2))+\
-                ' in_no_act:'+str(inNoAct)+' out_no_act:'+str(outNoAct)+' acc:'+str(round(inNoAct/(inNoAct+outNoAct),2))+'\n'+\
-                ' len_tra_over_one: '+str(traLenOverOne)+' no_action_num:'+str(noActionNum)+' no_action_num_80:'+str(noActionNumWithThreshold)+\
-                ' acc:'+str(round(noActionNum/traLenOverOne,2))+' acc2:'+str(round(noActionNumWithThreshold/traLenOverOne,2))+'\n'+\
-                ' len_tra_over_three: '+str(traLenOverThree)+' total_errors: '+str(totalErrors)+' acc: '+str(round(totalErrors/traLenOverThree,2))+\
-                errorR+accR+endAccR+'\n')
-        with open(reward_path,'a',encoding='UTF-8') as rewardInfoFile:
-            rewardInfoFile.write('eposides:'+str(K+1)+' ave_eposides_rewards:'+str(round(np.mean(t_reward),2))+\
-                ' ave reward '+str(round(t_reward[-1],2)) +'\n end_reward:' +str(round(np.mean(t_end_reward[-1]),2))+' '+\
-                ' ave_eposides_end_reward:'+str(round(np.mean(t_end_reward),2))+'\n'+\
-                ' end_in: '+str(endIn)+' end_out: '+str(endOut)+' train_end_acc: '+str(round(endIn/(endOut+endIn),2))+\
-                ' end_in_no_action: '+str(endInNoAct)+' end_out_no_act: '+str(endOutNoAct)+' acc:'+str(round(endInNoAct/(endInNoAct+endOutNoAct),2))+'\n'+\
-                ' in: '+str(totalIn)+' _out:'+str(totalOut)+' train_ave_acc:'+str(round(totalIn/(totalIn+totalOut),2))+\
-                ' in_no_act:'+str(inNoAct)+' out_no_act:'+str(outNoAct)+' acc:'+str(round(inNoAct/(inNoAct+outNoAct),2))+'\n'+\
-                ' len_tra_over_one: '+str(traLenOverOne)+' no_action_num:'+str(noActionNum)+' no_action_num_80:'+str(noActionNumWithThreshold)+\
-                ' acc:'+str(round(noActionNum/traLenOverOne,2))+' acc2:'+str(round(noActionNumWithThreshold/traLenOverOne,2))+'\n'+\
-                ' len_tra_over_three: '+str(traLenOverThree)+' total_errors: '+str(totalErrors)+' acc: '+str(round(totalErrors/traLenOverThree,2))+\
-                errorR+accR+endAccR+'\n')
+        if testRewards>best_scores and is_training:
+            torch.save(agent.target.state_dict(), modelPath)
+            best_scores=testRewards
+
+            for j in range(5):
+                testErrorR='\nerror: '
+                testAccR='\nIPA1: '
+                testEndAccR='\nIPA2: ' 
+                for i in range(5):
+                    testEndAccR+=str(i)+' '+str(round(testEndInS[j][i]/(testEndInS[j][i]+testEndOutS[j][i]) if (testEndInS[j][i]+testEndOutS[j][i])>0  else 0 ,2))+' '
+                    testAccR+=str(i)+' '+str(round(testInS[j][i]/(testInS[j][i]+testOutS[j][i]) if (testInS[j][i]+testOutS[j][i])>0  else 0 ,2))+' '
+                    testErrorR+=str(i)+' '+str(round(testErrorsS[j][i]/testLenS[j][i] if testLenS[j][i]>0  else 0 ,2))+' '
+                with open(preTestInfos[j],'a',encoding='UTF-8') as f:
+                    f.write('\npretest trainenv: '+'\n+env: '+str(j+17)+'\n'+testErrorR+testAccR+testEndAccR+'\n')
+           
 
 if __name__=='__main__':
 
@@ -563,7 +549,8 @@ if __name__=='__main__':
     parser.add_argument('-mode',type=int,default=1)
     parser.add_argument('-net',type=int,default=1)
     parser.add_argument('-preload',type=str2bool,default=False)
-    parser.add_argument('-lr',type=float,default=0.0005)
+    parser.add_argument('-lr',type=float,default=0.00005)
+    # 0.00005 0.0005
     parser.add_argument('-layers',type=int,default=5)
     parser.add_argument('-embed',type=int,default=128)
     parser.add_argument('-rems',type=int,default=5)
@@ -577,10 +564,19 @@ if __name__=='__main__':
     device = torch.device(args.cuda if torch.cuda.is_available() else 'cpu')
     agent=REMAgent2(device=device,rnn_layer=args.layers,embed_n=args.embed,flag=args.agentFlag)
     store=UTIL.getTimeStamp()
+    loadPath=[
+        '/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20240110/chooseway/4/model.pt',
+        '/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20240110/chooseway/3/model.pt',
+        '/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20240110/chooseway/2/model.pt',
+        '/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20240110/chooseway/0/model.pt',
+        '/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20240110/chooseway/1/model.pt'
 
-    if args.preload:
-        agent.load('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231220/trainallscene/0/dqnnetoffline.pt')
-    mainPath=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/',store[0:-6],'trainallscene')
+    ]
+    agent.load(loadPath[args.agentFlag-1])
+
+    # if args.preload:
+    #     agent.load('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231220/trainallscene/0/dqnnetoffline.pt')
+    mainPath=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/',store[0:-6],'chooseway','smallbatch')
     if not os.path.exists(mainPath):
         os.makedirs(mainPath)
     fileNum=len(os.listdir(mainPath))
@@ -592,13 +588,12 @@ if __name__=='__main__':
     envs=[]
     exclude=[]
     envTrain=[12, 14, 18, 21, 8, 2, 5, 20, 19, 9, 16, 10, 3, 15, 17]
+    envTrain=[6, 11, 7, 4, 13]
     for i in envTrain:
         if i<10:
             envs.append('0'+str(i))
         else:
             envs.append(str(i))
-    print(device)
-    # envs=['23']
     if not os.path.exists(store_path):
         os.makedirs(store_path)
     with open(os.path.join(store_path,'envsinfo.txt'),'w') as f:

@@ -27,15 +27,16 @@ import csv
 import pandas as pd
 from onlineconfig import *
 import warnings
-warnings.filterwarnings("error") 
-#  flask 传送原始数据给 trainModel-> click_x,click_y,eye_x,eye_y,state,再由flask端进行区域划分
-#  也由flask端进行数据存储
+import traceback
+# warnings.filterwarnings("error") 
 
-
+torch.autograd.set_detect_anomaly(True)
 # to stop training
 modelConditioner=threading.Condition(threading.Lock())
 # for train
 bufferConditioner=threading.Condition(threading.Lock())
+
+addConditioner=threading.Condition(threading.Lock())
 STOP_TRAIN_FLAG=False
 
 # response sample 
@@ -50,63 +51,63 @@ REWARDS=20
 
 # create data
 
-class DataCreater(object):
-    def __init__(self) -> None:
-        self.eye=[]
-        self.click=[]
-        self.pList=[]
+# class DataCreater(object):
+#     def __init__(self) -> None:
+#         self.eye=[]
+#         self.click=[]
+#         self.pList=[]
 
-    def refreshTra(self):
-        self.eye=[]
-        # self.click=[]
-        # self.pList=[]
+#     def refreshTra(self):
+#         self.eye=[]
+#         # self.click=[]
+#         # self.pList=[]
     
-    def refresh(self):
-        self.eye=[]
-        self.click=[]
-        self.pList=[]
+#     def refresh(self):
+#         self.eye=[]
+#         self.click=[]
+#         self.pList=[]
 
-    # region_level data
-    # false -> not predict
+#     # region_level data
+#     # false -> not predict
 
-    def getEye(self):
-        eyeList=[]
-        if len(self.eye)<10:
-            eyeList=dp(self.eye)
-        else:
-            step=(len(self.eye)//10)
-            for i in range(9):
-                eyeList.append(self.eye[i*step])
-            eyeList.append(self.eye[-1])
-        length=len(eyeList)
-        if len(eyeList)<10:
-            eyeList.extend([0 for i in range(10-length)])
-        return eyeList,length
+#     def getEye(self):
+#         eyeList=[]
+#         if len(self.eye)<10:
+#             eyeList=dp(self.eye)
+#         else:
+#             step=(len(self.eye)//10)
+#             for i in range(9):
+#                 eyeList.append(self.eye[i*step])
+#             eyeList.append(self.eye[-1])
+#         length=len(eyeList)
+#         if len(eyeList)<10:
+#             eyeList.extend([0 for i in range(10-length)])
+#         return eyeList,length
 
-    def addEye(self,eye):
-        self.eye.append(eye)
-        return self.getEye()
+#     def addEye(self,eye):
+#         self.eye.append(eye)
+#         return self.getEye()
     
-    def addP(self,p):
-        self.pList.append(p)
-        return dp(self.pList[-3:])
+#     def addP(self,p):
+#         self.pList.append(p)
+#         return dp(self.pList[-3:])
 
-    def addClick(self,click,mouseS):
-        clickFlag= True if len(self.click)>=3 else False
-        if clickFlag:
-            clickAns=dp(self.click[-3:])
-        else:
-            clickAns=len(self.click)
-        if mouseS==0:
-            if len(self.click)==0 or self.click[-1]!=click:
-                self.click.append(click)
+#     def addClick(self,click,mouseS):
+#         clickFlag= True if len(self.click)>=3 else False
+#         if clickFlag:
+#             clickAns=dp(self.click[-3:])
+#         else:
+#             clickAns=len(self.click)
+#         if mouseS==0:
+#             if len(self.click)==0 or self.click[-1]!=click:
+#                 self.click.append(click)
         
-        if len(self.click)>=3:
-            return 
-        return False,len(self.click)
+#         if len(self.click)>=3:
+#             return 
+#         return False,len(self.click)
     
-    def initP(self):
-        self.pList=dp(self.click)
+#     def initP(self):
+#         self.pList=dp(self.click)
 
         
 
@@ -135,29 +136,6 @@ class PresentsRecorder(object):
 
     def getLastPresents(self,index):
         return dp(self.recorder[index])
-
-
-# class reocord the data UNDO
-# class NumRecorder(object):
-
-#     def __init__(self,nums) -> None:
-#         self.nums=nums
-#         self.recoder=[0 for i in range(nums)]
-    
-#     def add(self,index):
-#         self.recoder[index]+=1
-
-#     def clearOne(self,index):
-#         self.recoder[index]=0
-
-#     def ind(self,index):
-#         return self.recoder[index]
-#     def addRecorder(self):
-#         self.nums+=1
-#         self.recoder.append(0)
-
-#     def clear(self):
-#         self.recoder=[0 for i in range(self.nums)]
 
 
 
@@ -195,7 +173,7 @@ class TrainModel(object):
         # recorde the index of the sequence
         self.numberRecorder=0.
         self.timeStamp=getTimeStamp()
-        self.storePath=os.path.join(OnlineConfig.ONLIEN_DATA_PATH.value,self.timeStamp[0:-6],'model',self.timeStamp[-6:],str(self.mode))
+        self.storePath=os.path.join(OnlineConfig.ONLIEN_DATA_PATH.value,self.timeStamp[0:-6],'model',self.timeStamp[-6:])
         if not os.path.exists(self.storePath):
             os.makedirs(self.storePath)
         self.modelSavePath=os.path.join(self.storePath,'onlineModel.pt')
@@ -203,6 +181,7 @@ class TrainModel(object):
         self.onlineReward=os.path.join(self.storePath,'onlineReward.txt')    
         self.updateModel=os.path.join(self.storePath,'updateModel.txt')    
         self.update=False
+        self.checkpointBase=os.path.join(OnlineConfig.ONLIEN_DATA_PATH.value,self.timeStamp[0:-6],'checkpoint')
 
         # self.dataCreater=DataCreater()
         self.stop=False
@@ -218,12 +197,21 @@ class TrainModel(object):
         self.agent.load(OnlineConfig.LOAD_PATH.value)
         self.predictModel.load(OnlineConfig.LOAD_PATH.value)
         self.baseStorePath=OnlineConfig.EYE_DATA_PATH.value
-        self.dc=DataCreater()
+        # self.dc=DataCreater()
         self.newFileNums=0
         self.remBlocskNum=5
         self.best_scores=-np.inf
+        # personID
         self.currentID=-1
-    
+        self.sceneID=-1
+        self.addNum=[]
+        self.addScene=[]
+        self.addFlag=[]
+        self.filesPath=[]
+
+
+        self.error=False
+
     def loadModel(self):
         if self.mode==0:
             self.agent.load(OnlineConfig.LOAD_PATH.value)
@@ -238,7 +226,7 @@ class TrainModel(object):
 
     def modeSwitch(self):
         self.loadModel()
-        self.isTraining=False
+        # self.isTraining=False
 
         self.predictCnts=1
         self.onlineAcc=[]
@@ -255,7 +243,7 @@ class TrainModel(object):
         # recorde the index of the sequence
         self.numberRecorder=0.
         self.checkPointNum=0
-        self.storePath=os.path.join(OnlineConfig.ONLIEN_DATA_PATH.value,self.timeStamp[0:-6],'model',self.timeStamp[-6:],str(self.mode))
+        self.storePath=os.path.join(OnlineConfig.ONLIEN_DATA_PATH.value,self.timeStamp[0:-6],'model',self.timeStamp[-6:])
         if not os.path.exists(self.storePath):
             os.makedirs(self.storePath)
         self.modelSavePath=os.path.join(self.storePath,'onlineModel.pt')
@@ -271,7 +259,7 @@ class TrainModel(object):
         # self.dataSetBuffer=ReplayBufferRNN2(2**19,self.device)
         # for test people data
         self.batchSize=8
-        self.dc=DataCreater()
+        # self.dc=DataCreater()
         self.newFileNums=0
         self.remBlocskNum=5
         self.switchModeFlag=False     
@@ -291,34 +279,36 @@ class TrainModel(object):
         trainNums=[]
         trainScene=[]
         skipSize=5
-
-        # if os.path.exists(OnlineConfig.INDIVIDUAL.value):
-        #     fileNum=len(os.listdir(OnlineConfig.INDIVIDUAL.value))
-        # else:
-        #     fileNum=0
-        # onlineNum=int(np.ceil(fileNum/5))
         fileList=os.listdir(OnlineConfig.EYE_DATA_PATH.value)
-        for scene in range(1,5):
-            for dir in fileList:
+        for dir in fileList:
+            scenePaths=os.listdir(os.path.join(OnlineConfig.EYE_DATA_PATH.value,dir))
+            if len(scenePaths)==0:
+                continue
+            for scene in scenePaths:
                 envPath=os.path.join(OnlineConfig.EYE_DATA_PATH.value,dir,str(scene))
                 if not os.path.exists(envPath):
                     continue
                 if len(os.listdir(envPath))==0:
                     continue
-                envs.append(DQNRNNEnv(envPath))
+                envs.append(DQNRNNEnv(envPath,restrict=OnlineConfig.RESTRICT.value))
+                self.filesPath.append(envPath)
                 trajectorys.append(DQNRNNTrajectory2())
                 pr.addRecorder()
                 trainNums.append(int(dir))
                 trainScene.append(int(scene))
         for i in range(len(envs)):
             envs[i].setMODE(self.mode)
+            envs[i].mode=False
+            envs[i].shuffle=True
+            envs[i].restrict=OnlineConfig.RESTRICT.value
             envs[i].load_dict()
             envs[i].get_file()
-        for env in envs:
-            env.state_mode=1
+
+            print(envs[i].files_path)
         K=0
         device=self.device
         while True:
+            print(f'is train {self.isTraining}')
             if self.stop:
                 with modelConditioner:
                     print('stop to train1')
@@ -346,13 +336,48 @@ class TrainModel(object):
             endOutNoAct=0
             # 100
 
-            if self.switchModeFlag:
-                self.modeSwitch()
-                self.isTraining=False
-                print('mode stop')
-                return
-                trainer = torch.optim.Adam(lr=self.lr, params=self.agent.online.parameters())
+            # if self.switchModeFlag:
+            #     self.modeSwitch()
+            #     self.isTraining=False
+            #     print('mode stop')
+            #     return
+            #     trainer = torch.optim.Adam(lr=self.lr, params=self.agent.online.parameters())
 
+
+            if self.addFlag:
+                with addConditioner:
+                    self.addFlag=False
+                    addNum=dp(self.addNum)
+                    addScene=dp(self.addScene)
+                    self.addNum=[]
+                    self.addScene=[]
+                # print(addNum,addScene)
+                for dir,scene in zip(addNum,addScene):
+                    envPath=os.path.join(OnlineConfig.EYE_DATA_PATH.value,dir,str(scene))
+                    if envPath in self.filesPath:
+                        continue
+                    if not os.path.exists(envPath):
+                        continue
+                    if len(os.listdir(envPath))==0:
+                        continue
+                    envs.append(DQNRNNEnv(envPath,restrict=OnlineConfig.RESTRICT.value))
+                    trajectorys.append(DQNRNNTrajectory2())
+                    pr.addRecorder()
+                    trainNums.append(int(dir))
+                    trainScene.append(int(scene))
+                    envs[-1].mode=False
+                    envs[-1].restrict=OnlineConfig.RESTRICT.value
+                    envs[-1].shuffle=True
+                    envs[-1].setMODE(self.mode)
+                    envs[-1].load_dict()
+                    envs[-1].get_file()
+                    
+            uniqueNums=np.unique(trainNums)
+            skipFlag=False
+            skipNums=[]
+            if len(uniqueNums)>5:
+                skipFlag=True
+                skipNums=np.random.choice(uniqueNums,5,replace=False)
             for steps in range(200):
                 if self.stop:
                     with modelConditioner:
@@ -361,27 +386,6 @@ class TrainModel(object):
                     print('awake2')
                 if self.switchModeFlag:
                     break
-                # if self.newFileNums%5==0 and self.newFileNums!=0:
-                #     updateTimes=int(np.ceil(self.newFileNums/5))
-                #     skipSize+=1
-                #     for sceneNum in range(1,5):
-                #         for i in range(updateTimes):
-                #             envPath=os.path.join(OnlineConfig.INDIVIDUAL_NO_SCENE.value,str(scene))
-                #             if not os.path.exists(envPath):
-                #                 continue
-                #             if len(os.listdir(envPath))==0:
-                #                 continue
-                #             envs.append(DQNRNNEnv(envPath))
-                #             envs[i].setMODE(self.mode)
-                #             envs[-1].load_dict()
-                #             envs[-1].get_file()
-                #             pr.addRecorder()
-                #             trajectorys.append(DQNRNNTrajectory2())
-                #             trainNums.append(OnlineConfig.PERSON.value)
-                #             trainScene.append(sceneNum)
-                    
-                #     self.newFileNums=0
-                # print('train2')
                 eyeList=[]
                 clickList=[]
                 indexes=[]
@@ -389,21 +393,18 @@ class TrainModel(object):
                 lengthsList=[]
                 personList=[]
                 sceneList=[]
-                # ans -> eye click goal isEnd
-                skipNum=[]
-                l=np.min(trainNums)
-                h=np.max(trainNums)
-                skipSize=np.minimum(h-l-5)
-                if skipSize >0:
-                    skipNum=np.random.randint(low=l,high=h,size=skipSize)
+               
                 for i in range(len(envs)):
-                    # if OnlineConfig.SKIP.value and i in skipNum:
-                    #     continue
-                    if trainNums[i]!=self.currentID and trainNums[i] in skipNum:
-                        continue
+                    # if skipFlag and trainNums[i]!=self.currentID:
+                    if skipFlag:
+                        if trainNums[i] not in skipNums:
+                            continue
                     ans=envs[i].act()
                     if isinstance(ans,bool):
+                        envs[i].mode=False
+                        envs[i].restrict=OnlineConfig.RESTRICT.value
                         envs[i].setMODE(self.mode)
+                        envs[i].shuffle=True
                         envs[i].load_dict()
                         envs[i].get_file()
                         continue
@@ -430,6 +431,8 @@ class TrainModel(object):
                             doneFlag=1
                         trajectorys[i].push(click,eye,ans[2],0,doneFlag*UTIL.GAMMA,lastP,lengths,person,scene)
                         indexes.append(i)
+                if len(clickList)==0 or len(lastPList)==0 or len(lengthsList)==0 or len(sceneList)==0:
+                    continue
                 clickCat=torch.stack(clickList,dim=0).to(device)
                 lastPCat=torch.stack(lastPList,dim=0).to(device)
                 lengthStack=torch.stack(lengthsList,dim=0)
@@ -437,15 +440,17 @@ class TrainModel(object):
                 sceneStack=torch.stack(sceneList,dim=0).to(device).unsqueeze(1)   
 
                 eyeList=torch.stack(eyeList,dim=0).to(device)
+                # print(clickCat,eyeList,lastPCat,lengthStack,personStack,sceneStack)
                 actions=self.agent.act(clickCat,eyeList,lastPCat,lengthStack,personStack,sceneStack)
                 if actions.shape==():
                     actions=[actions]
                 
                 for actS,index in zip(actions,indexes):
+                    # print(actS)
                     pr.add(index,actS)
                     prob=random.random()
                     if prob>EPOSILON:
-                        trajectorys[index].tras[-1][3]=dp(actS)
+                        trajectorys[index].tras[-1][3]=dp((actS))
                     else:
                         trajectorys[index].tras[-1][3]=random.randint(0,12)
                     if trajectorys[index].tras[-1][4]==0:
@@ -473,13 +478,21 @@ class TrainModel(object):
                         if traInfo[12]!=-1 and trainNums[index]>=OnlineConfig.PERSON_ENVS.value:
                             endInNoAct+=traInfo[12]
                             endOutNoAct+=int(traInfo[12])^1
-                        if self.mode==1:
-                            self.iterationBuffer.push(TDZeroList)
-                        elif self.mode==0:
-                            self.iterationBuffer.push(TDZeroList)
-                        else:
-                            self.trainBuffer.push(TDZeroList)
-        
+                        try:
+                            if self.mode==1:
+                                self.iterationBuffer.push(TDZeroList)
+                            elif self.mode==0:
+                                self.iterationBuffer.push(TDZeroList)
+                            else:
+                                self.trainBuffer.push(TDZeroList)
+                            # print(TDZeroList)
+                        except Exception as e:
+                            print(type(e).__name__)
+                            print(str(e))
+                            print(traceback.print_exc())
+                            print(TDZeroList)
+                            print('error3')
+                            # return 
                         trajectorys[index].clear()
 
                 holding=0
@@ -529,13 +542,19 @@ class TrainModel(object):
                 l = loss(values, y)
                 try:
                     trainer.zero_grad()
-                    l.backward()
+                    l.backward(l.clone().detach())
                     trainer.step()
-                except:
-                    self.modeSwitch()
-                    self.isTraining=False
-                    print('mode stop')
-                    return
+                except Exception as e:
+                    print(type(e).__name__)
+                    print(str(e))
+                    print(traceback.print_exc())
+                    # self.modeSwitch()
+                    # self.isTraining=False
+                    # self.error=True
+                    print(clickList,eyeList,lastPList,lengths,person,scene,actionList,rewardList,maskList,nclickList,neyeList,nlastPList,nlengths,nperson,nscene)
+                    print(l)
+                    print('error2')
+                    # return
                 if steps%10==0 and steps!=0:
                     self.agent.update()
 
@@ -546,25 +565,33 @@ class TrainModel(object):
             else:
                 t_reward.append(np.mean(rewards))
 
-            if len(t_reward)>5 and np.mean(t_reward)>self.best_scores:
+            if len(t_reward)>4 and np.mean(t_reward)>self.best_scores:
                 print('save')
                 with modelConditioner:
                     torch.save(self.agent.target.state_dict(), self.modelSavePath)
-                    checkPointPath=os.path.join(self.storePath,str(self.checkPointNum))
-                    if not os.path.exists(checkPointPath):
-                        os.makedirs(checkPointPath)
+                    checkPointBasePath=os.path.join(self.storePath,'checkpoint',str(self.checkPointNum))
+                    if not os.path.exists(checkPointBasePath):
+                        os.makedirs(checkPointBasePath)
                         # print(f'create path {checkPointPath}')
                     self.checkPointNum+=1
-                    checkPointPath=os.path.join(checkPointPath,'checkpointModel.pt')
+                    checkPointPath=os.path.join(checkPointBasePath,'checkpointModel.pt')
+                    checkPointWritePath=os.path.join(checkPointBasePath,'info.txt')
                     torch.save(self.agent.target.state_dict(), checkPointPath)
                     self.update=True
+                    # if not os.path.exists(checkPointWritePath):
+                    #     f=open(checkPointWritePath,'w')
+                    #     f.write('write')
+                    #     f.close()
+                    with open(checkPointWritePath,'a',encoding='UTF-8') as checkPointInfo:
+                        checkPointInfo.write('personID:'+str(self.currentID)+' mode:'+str(self.mode)+' scene:'+str(self.sceneID)+'\n')
+
                 self.best_scores=np.mean(t_reward)
                 with open(self.updateModel,'a',encoding='UTF-8') as updateModel:
                     updateModel.write('eposides:'+str(K+1)+' ave_eposides_rewards:'+str(round(np.mean(t_reward),2))+\
                     ' ave reward '+str(round(t_reward[-1],2)) +'\n'+\
                     ' end_in: '+str(endIn)+' end_out: '+str(endOut)+' IPA2: '+str(round(endIn/(endOut+endIn) if (endOut+endIn) >0 else 0,2))+\
                     ' end_in_no_action: '+str(endInNoAct)+' end_out_no_act: '+str(endOutNoAct)+' IPA2_NOACTION:'+str(round(endInNoAct/(endInNoAct+endOutNoAct) if (endInNoAct+endOutNoAct) >0 else 0,2))+'\n'+\
-                    ' in: '+str(totalIn)+' _out:'+str(totalOut)+' IPA1:'+str(round(totalIn/(totalIn+totalOut) if (totalIn+totalOut) >0 else 0,2))+'\n')
+                    ' in: '+str(totalIn)+' _out:'+str(totalOut)+' IPA1:'+str(round(totalIn/(totalIn+totalOut) if (totalIn+totalOut) >0 else 0,2))+'\n'+' '+str(self.best_scores)+'\n')
 
             K+=1
             with open(self.rewardPath,'a',encoding='UTF-8') as rewardFile:
@@ -572,7 +599,7 @@ class TrainModel(object):
                 ' ave reward '+str(round(t_reward[-1],2)) +'\n'+\
                 ' end_in: '+str(endIn)+' end_out: '+str(endOut)+' IPA2: '+str(round(endIn/(endOut+endIn) if  (endOut+endIn)>0 else 0,2))+\
                 ' end_in_no_action: '+str(endInNoAct)+' end_out_no_act: '+str(endOutNoAct)+' IPA2_NOACTION:'+str(round(endInNoAct/(endInNoAct+endOutNoAct) if (endInNoAct+endOutNoAct) >0 else 0,2))+'\n'+\
-                ' in: '+str(totalIn)+' _out:'+str(totalOut)+' IPA1:'+str(round(totalIn/(totalIn+totalOut) if (totalIn+totalOut) >0 else 0,2))+'\n')
+                ' in: '+str(totalIn)+' _out:'+str(totalOut)+' IPA1:'+str(round(totalIn/(totalIn+totalOut) if (totalIn+totalOut) >0 else 0,2))+'\n'+' '+str(self.best_scores)+'\n')
     
 
     def getAveTraAcc(self):
@@ -611,12 +638,26 @@ class TrainModel(object):
         if r<0:
             self.best_scores+=r
         with open(self.onlineReward,'a') as f:
-            f.write(' mode: '+str(self.mode)+' '+'tras: '+str(self.predictCnts)+' tra_len: '+str(info[0])+' '+\
+            f.write(' mode: '+str(self.mode)+' scene: '+str(self.sceneID)+' person: '+str(self.currentID)+'\n'+'tras: '+str(self.predictCnts)+' tra_len: '+str(info[0])+' '+\
                     'total_correct: '+str(info[1]) +' end_correct: '+str(info[2])+'\n'+\
                     'total_reward: '+str(info[3])+' end_reward: '+str(info[4])+' ave_reward: '+str(round(info[4]/info[0] if info[0] >0 else 0,2))+'\n'+\
                     'IPA2: '+str(round(np.mean(self.onlineAcc),2))+' TOTALIPA1: '+str(round(float(np.sum(self.onlineAveAcc)/np.sum(self.onlineLen) if np.sum(self.onlineLen) >0 else 0),2))+\
                     ' onlinePRR: '+str(round(np.mean(self.traPRR),2))+'\n')
+        predictPath=os.path.join(OnlineConfig.ONLIEN_DATA_PATH.value,self.timeStamp[0:-6],'model',self.timeStamp[-6:],str(self.currentID),\
+                                str(self.sceneID),str(self.mode),'trajectory')
+        if not os.path.exists(predictPath):
+            os.makedirs(predictPath)
+        fileNum=len(os.listdir(predictPath))
+        predictPath=os.path.join(predictPath,str(fileNum)+'.txt')
+        f=open(predictPath,'w')
+        f.write(str(self.predictCnts)+'\n')
+        f.close()
+        ansStr=self.tras.everyStepsStr()
+        with open(predictPath,'a') as f:
+            f.write(ansStr)
         self.predictCnts+=1
+
+  
     
     '''
     name:snapping
@@ -631,7 +672,7 @@ class TrainModel(object):
 
     def predict(self,*data):
         # eyeList,clickList,pList,mouseS,person,sceneId,length
-        eyeList,clickList,lastP,state,person,scene,length,goal=data
+        eyeList,clickList,lastP,state,person,scene,length,goal,timeStamp=data
         self.currentID=person
         mask=UTIL.GAMMA
         if self.update:
@@ -648,19 +689,21 @@ class TrainModel(object):
         personTensor=torch.tensor([[[person]]],dtype=torch.long).to(self.device)
         sceneTensor=torch.tensor([[[scene]]],dtype=torch.long).to(self.device)
         ans=int(self.predictModel.act(clickTensor,eyeTensor,pTensor,lenTensor,personTensor,sceneTensor))
+        prob=self.predictModel.getProbs()
         # click,eye,goal,action,mask
         mask=UTIL.GAMMA
         if state==0:
             mask=0
         self.tras.push(clickTensor.squeeze(),eyeTensor.squeeze(),0,ans,mask,pTensor.squeeze(),\
-                       lenTensor.squeeze(),personTensor.squeeze(0).squeeze(0),sceneTensor.squeeze(0).squeeze(0))
+                       lenTensor,personTensor.squeeze(0).squeeze(0),sceneTensor.squeeze(0).squeeze(0))
+        self.tras.pushProbs(self.predictModel.getProbs())
+        self.tras.pushTimeStamp(timeStamp)
         if state==0 and len(self.tras.tras)>0:
             print(f'add')
             self.tras.setGoal(goal)
             self.numberRecorder=0
             self.tras.getNewTras()
             TDZeroList=self.tras.getComTraZero()
-            # print(TDZeroList)]
             try:
                 with bufferConditioner:
                     if self.mode==2:
@@ -669,12 +712,16 @@ class TrainModel(object):
                         self.iterationBuffer.push(TDZeroList)
                     elif self.mode==0:
                         self.iterationBuffer.push(TDZeroList)
-            except:
+            except Exception as e:
+                print(type(e).__name__)
+                print(str(e))
+                print(traceback.print_exc())
+                print('error1 ')
                 print(TDZeroList)
             self.writeReward()
             self.tras.clear()
 
-        return ans,'success'
+        return ans,prob,'success'
 
 model=TrainModel()
 # dataRecorder=OnlineDataRecorder(storePath='/home/wu_tian_ci/eyedatanew')
@@ -696,7 +743,7 @@ def getResponse(flag=True,message='success',data=True):
 def sendData():
     global model
     print('send')
-    model.dc.refresh()
+    # model.dc.refresh()
     writeTxt=model.getAveTraAcc()
     model.writeTxt(writeTxt)
     print(f'this is txt {writeTxt}')
@@ -710,6 +757,10 @@ def sendData():
     savePath=os.path.join(str(OnlineConfig.EYE_DATA_PATH.value),str(peopleNum),str(sceneNum))
     if not os.path.exists(savePath):
         os.makedirs(savePath)
+        with addConditioner:
+            model.addFlag=True
+            model.addNum.append(str(peopleNum))
+            model.addScene.append(str(sceneNum))
     savePath=os.path.join(savePath,fileName)
     df=pd.DataFrame(dataList)
     df.to_csv(savePath,header=None,index=False)
@@ -717,6 +768,8 @@ def sendData():
     responseJson=json.dumps(responseDict)
     response=make_response(responseJson)    
     model.newFileNums+=1
+    if not np.isinf(model.best_scores):
+        model.best_scores*=0.8
     return response
     
 
@@ -765,9 +818,10 @@ def excuteOrder():
         mode=int(resp.get('mode'))
         responseDict['message']='success'
         with modelConditioner:
+            # model.mode=mode
             if model.mode!=mode:
-                if model.mode!=0:
-                    model.switchModeFlag=True
+                # if model.mode!=0:
+                #     model.switchModeFlag=False
                 model.mode=mode
             else:
                 responseDict['message']='mode not change'
@@ -790,16 +844,20 @@ def getPredict():
     responseDict=getResponse()
     eyeList,clickList,pList,mouseS,person,sceneId,length,goal=resp.get('eyeList'),resp.get('clickList'),resp.get('pList'),\
     resp.get('mouseS'),resp.get('person'),resp.get('scene'),resp.get('length'),resp.get('goal')
-    
+    timeStamp=resp.get('timeStamp')
     print(f'scene {sceneId}')
+    model.sceneID=sceneId
     try:
-        ans=model.predict(eyeList,clickList,pList,mouseS,person,sceneId,length,goal)
+        ans=model.predict(eyeList,clickList,pList,mouseS,person,sceneId,length,goal,timeStamp)
     except:
+        print('error4')
+        print(eyeList,clickList,pList,mouseS,person,sceneId,length,goal,timeStamp)
         ans=12
-    print(ans)
+    print(ans[0])
     responseDict['data']=ans[0]
     responseDict['flag']=True
-    responseDict['message']=ans[1]
+    responseDict['message']=ans[2]
+    responseDict['prob']=ans[1].tolist()
     responseJson=json.dumps(responseDict)
     response=make_response(responseJson)
     return response

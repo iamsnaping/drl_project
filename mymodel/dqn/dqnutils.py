@@ -15,6 +15,18 @@ from copy import deepcopy as dp
 from dqnenv import *
 from dqnagent import *
 
+import enum
+
+
+class AgentFlag(enum.Enum):
+    REMNet2=1
+    REMNet2_NO_PID=2
+    REMNet2_NO_SID=3
+    REMNet2_NO_SPID=4
+    REMNet2_NO_LP=5
+
+
+
 GAMMA=0.96
 
 class DQNReward(object):
@@ -104,7 +116,6 @@ class ReplayBufferRNN(object):
         if cursor>self.capacity:
             c1=cursor-self.capacity
             c2=len(lengths)-c1
-            # print(self.cursor,cursor,len(lengths),c1,c2,self.capacity)
             self.lengths[self.cursor:]=lengths[0:c2]
             self.nlengths[self.cursor:]=nlenghts[0:c2]
             self.clickList[self.cursor:]=clickList[0:c2]
@@ -196,286 +207,6 @@ class ReplayBufferRNN(object):
         nperson=torch.unsqueeze(nperson,dim=1)
 
         return clickList,eyeList,lastPList,lengths,person,actionList,rewardList,maskList,nclickList,neyeList,nlastPList,nlengths,nperson
-
-class DQNRNNTrajectory(object):
-    def __init__(self) -> None:
-
-
-
-        self.tras=[]
-        self.newTras=[]
-        self.rewardFun=DQNReward()
-        self.aveLen=[]
-        # self.distribution=[0 for i in range(250)]
-        self.counting=0
-        self.noActionNum=0
-        self.noActionNumWithThreshold=0.
-        self.corrects=[]
-        self.noAction=[]
-        self.action=[]
-        self.noActionCorrect=[]
-    # TD(N) N->(0)
-
-
-    # 
-    def getComTraZero(self):
-        self.counting+=1
-        traLen=len(self.newTras)
-        # zTra=[]
-        lengths=[]
-        nlenghts=[]
-        clickList=[]
-        eyeList=[]
-        goalList=[]
-        actionList=[]
-        maskList=[]
-        rewardList=[]
-        nclickList=[]
-        lastPList=[]
-        nlastPList=[]
-        neyeList=[]
-        personList=[]
-        npersonList=[]
-        for i in range(traLen-1):
-            click,eye,goal,action,mask,reward,lastP,length,person=self.newTras[i]
-            # print(click,eye,goal,action,mask,reward)
-            nclick,neye,ngoal,naction,nmask,nreward,nlastP,nlength,npersion=self.newTras[i+1]
-            # zTra.append([click,eye,len(eye),goal,action,mask,reward,nclick,neye,len(neye)])
-            clickList.append(click) # tensor
-            eyeList.append(eye) # tensor
-            goalList.append(goal)# long
-            actionList.append(action) # long
-            maskList.append(mask)# float32
-            rewardList.append(reward)# float32
-            nclickList.append(nclick)# tensor
-            neyeList.append(neye)# tensor
-            nlenghts.append(nlength)# long
-            lengths.append(length)# long
-            lastPList.append(lastP)
-            nlastPList.append(nlastP)
-
-            personList.append(person)
-            npersonList.append(npersion)
-        click,eye,goal,action,mask,reward,lastP,length,persion=self.newTras[-1]
-        if int(0.5+mask)==0:
-            # length=torch.tensor(len(eye),dtype=torch.long)
-            # nlength=torch.tensor(len(eye),dtype=torch.long)
-            nclick=torch.tensor([0 for i in range(len(click))],dtype=torch.long).to(click.device)
-            neye=torch.tensor([0 for i in range(len(eye))],dtype=torch.long).to(eye.device)
-            nlastP=torch.tensor([0 for i in range(len(lastP))],dtype=torch.long).to(lastP.device)
-            # zTra.append([click,eye,length,goal,action,0,reward,nclick,neye,nlength])
-            clickList.append(click) # tensor
-            eyeList.append(eye) # tensor
-            goalList.append(goal)# long
-            actionList.append(action) # long
-            maskList.append(mask)# float32
-            rewardList.append(reward)# float32
-            nclickList.append(nclick)# tensor
-            neyeList.append(neye)# tensor
-            nlenghts.append(length)# long
-            lengths.append(length)# long
-            lastPList.append(lastP)
-            nlastPList.append(nlastP)
-
-            personList.append(persion)
-            npersonList.append(persion)
-        lengths=torch.stack(lengths,dim=0)
-        nlenghts=torch.stack(nlenghts,dim=0)
-        npersonList=torch.stack(npersonList,dim=0)
-        personList=torch.stack(personList,dim=0)
-        clickList=torch.stack(clickList,dim=0)
-        nclickList=torch.stack(nclickList,dim=0)
-        lastPList=torch.stack(lastPList,dim=0)
-        nlastPList=torch.stack(nlastPList,dim=0)
-
-        eyeList=torch.stack(eyeList,dim=0)
-        neyeList=torch.stack(neyeList,dim=0)
-        return clickList,eyeList,lastPList,lengths,personList,goalList,actionList,rewardList,maskList,nclickList,neyeList,nlastPList,nlenghts,npersonList
-
-    # n-> n+1 steps
-    # def getComTraN(self,N=2):
-    #     traLen=len(self.newTras)
-    #     self.counting+=1
-    #     # print(f"new tras {self.newTras} zero {self.newTras[0]}")
-    #     lastClick=[0 for i in range(len(self.newTras[0][0]))]
-    #     lastEye=[0 for  i in range(len(self.newTras[0][1]))]
-    #     lastSeq=[0 for i in range(len(self.newTras[0][-1]))]
-    #     NTras=[]
-    #     #seq should be 3
-    #     for i in range(traLen,-1,-1):
-    #         if i<=N:
-    #             break
-    #         if i==traLen:
-    #             clickL,eyeL,seqL=lastClick,lastEye,lastSeq
-    #         else:
-    #             clickL,eyeL,goalL,actionL,maskL,rewardL,seqL=self.newTras[i]
-    #         maskAcu=1.
-    #         rewardAcu=0.
-    #         for j in range(1,N+2):
-    #             click,eye,goal,action,mask,reward,seq=self.newTras[i-j]
-    #             rewardAcu=rewardAcu*mask+reward
-    #             maskAcu*=mask
-    #         NTras.append([click,eye,goal,action,seq,maskAcu,rewardAcu,clickL,eyeL,seqL])
-    #     return NTras
-            
-
-    def getNewTras(self):
-        traLen=len(self.tras)
-        self.aveLen.append(traLen)
-        # self.distribution[traLen]+=1
-        present=self.tras[0][0][-1]
-        presents=[]
-        # self.rewardFun.initPrediction(self.tras[0][0][0])
-        errorFlags=[]
-        self.rewardFun.errors=0
-        self.rewardFun.lastErrors=0
-        self.rewardFun.prediction=[]
-        for i in range(traLen):
-            click,eye,goal,action,mask,lastP,length,person=self.tras[i]
-            # print(f'action {action} p {presents}')
-            presents.append(present)
-            if action!=12:
-                present=action
-            self.rewardFun.addPrediction(present)
-            if len(self.rewardFun.prediction)>=3:
-                errorFlags.append(self.rewardFun.judgeError())
-            else:
-                errorFlags.append(True)
-        self.rewardFun.lastErrors=self.rewardFun.errors
-        self.rewardFun.errors=0
-        self.rewardFun.prediction=[]
-        # print(f'presnts0 {presents}')
-        for i in range(traLen):
-            # predict,goal,mask,present,judgeFlag
-            click,eye,goal,action,mask,lastP,length,person=self.tras[i]
-
-            reward=self.rewardFun.getReward(action,goal,mask,presents[i],errorFlags[i])
-            if traLen>1:
-                if action==12:
-                    if (i+1)/traLen<0.8:
-                        self.noActionNumWithThreshold+=1
-                    self.noActionNum+=1
-
-            self.newTras.append([click,eye,goal,action,mask,reward,lastP,length,person])
-    
-    def push(self,*data):
-        click,eye,goal,action,mask,lastP,length,person=dp(data)
-        # traNum=len(self.tras)
-        self.tras.append([click,eye,goal,action,mask,lastP,length,person])
-    
-
-    def setGoal(self,goal):
-        for tra in self.tras:
-            tra[2]=goal
-    
-    # after get new tras
-    '''
-    no action ratio before 80% with length beyond 80% length beyond 1
-    errors ratio in the len beyond 3
-    in,out elimilated no actions
-    rewards ,endrewards
-    '''
-    def getInfo(self):
-        _in,_out,inOut=0.,0.,0.
-        inNoAct,outNoAct=0.,0.
-        rewards,endRewards=0.,0.
-        # print(self.newTras[0][0])
-        present=self.newTras[0][0][-1].cpu().detach().numpy()
-        lastWithNoAction=0
-        endInOutNoAction=-1
-        for tra in self.newTras:
-            click,eye,goal,action,mask,reward,lastP,length,person=tra
-            rewards+=reward
-            if action==12:
-                self.noAction.append(1)
-            else:
-                self.noAction.append(0)
-            if action!=12:
-                if action==goal:
-                    self.noActionCorrect.append(1)
-                    inNoAct+=1
-                else:
-                    outNoAct+=1
-                    self.noActionCorrect.append(0)
-            else:
-                self.noActionCorrect.append(-1)
-            # if action==12 and 
-            if int(0.5+mask)==0:
-                if action==12:
-                    lastWithNoAction+=1# error name
-                endRewards+=reward
-            if action!=12:
-                present=action
-            # print(f'present {present} goal{goal} action {action}')
-            if present==goal:
-                _in+=1
-                self.corrects.append(1)
-                if int(0.5+mask)==0:
-                    inOut=1
-                    if action!=12:
-                        endInOutNoAction=1
-            else:
-                self.corrects.append(0)
-                _out+=1
-                if int(0.5+mask)==0 and action!=12:
-                    endInOutNoAction=0
-        '''
-        no action ratio before 80% with length beyond 80% length beyond 1
-        errors ratio in the len beyond 3
-        in,out elimilated no actions
-        rewards ,endrewards
-        '''
-        traLen=len(self.newTras)
-        return traLen,self.noActionNum,self.noActionNumWithThreshold,lastWithNoAction,\
-            _in,_out,inOut,reward,endRewards,inNoAct,outNoAct,self.rewardFun.lastErrors,endInOutNoAction
-
-    def getInfo2(self):
-        present=self.tras[0][0][-1].cpu().detach().numpy()
-        IPA2=0
-        totalCorrect=0
-        endCorrect=0
-        totalReward=0
-        endReward=0
-        for tra in self.newTras:
-            click,eye,goal,action,mask,reward,lastP,length,person=tra
-            if action!=12:
-                present=action
-            if present==goal:
-                if IPA2==0:
-                    IPA2=1
-                totalCorrect+=1
-                if int(mask+0.5)==0:
-                    endCorrect+=1
-            totalReward+=reward
-            if int(mask+0.5)==0:
-                endReward=reward
-        # print(self.tras,self.newTras)
-        
-        return len(self.tras),totalCorrect,endCorrect,totalReward,endReward,IPA2
-            
-
-
-    def getCorrects(self):
-        return self.corrects
-
-    def clear(self):
-        self.tras=[]
-        self.newTras=[]
-        self.noActionNum=0.
-        self.noActionNumWithThreshold=0.
-        self.corrects=[]
-        self.noAction=[]
-        self.action=[]
-        self.noActionCorrect=[]
-    
-    
-    # def __del__(self):
-    #     print(f'ave len: {np.mean(self.aveLen)} max len: {np.max(self.aveLen)} min len: {np.min(self.aveLen)} total: {np.sum(self.distribution)} counting: {self.counting}')
-    #     print('distribution:')
-    #     for i in range(25):
-    #         for j in range(10):
-    #             print(f'nums {i*10+j} {self.distribution[i*10+j]}',end=' ')
-    #         print('')
 
 # scene
 class ReplayBufferRNN2(object):
@@ -652,7 +383,109 @@ class ReplayBufferRNN2(object):
         nscene=torch.unsqueeze(nscene,dim=1)
 
         return clickList,eyeList,lastPList,lengths,person,scene,actionList,rewardList,maskList,nclickList,neyeList,nlastPList,nlengths,nperson,nscene
+    
+    # def loadBuffer(self,loadPath):
+    #     f=open(loadPath,'r')
+    #     data=json.load(f)
+    #     self.isFull=bool(data.get('isFull'))
+    #     self.capacity=int(data.get('capacity'))
+    #     self.cursor=int(data.get('cursor'))
+    #     if self.isFull:
+    #         for i in range(self.capacity):
+    #             self.eyeList[i]=torch.tensor(data.get(str(i)).get('eyeList'),dtype=torch.long)
+    #             subDict['eyeList']=eyeList[i]
+    #             subDict['clickList']=clickList[i]
+    #             subDict['lengths']=lengths[i]
+    #             subDict['actionList']=actionList[i]
+    #             subDict['maskList']=maskList[i]
+    #             subDict['rewardList']=rewardList[i]
+    #             subDict['nclickList']=nclickList[i]
+    #             subDict['neyeList']=neyeList[i]
+    #             subDict['nlengths']=nlengths[i]
+    #             subDict['lastPList']=lastPList[i]
+    #             subDict['nlastPList']=nlastPList[i]
+    #             subDict['person']=person[i]
+    #             subDict['nperson']=nperson[i]
+    #             subDict['scene']=scene[i]
+    #             subDict['nscene']=nscene[i]
+    #     else:
 
+    # def saveBuffer(self,savePath):
+    #     eyeList=self.eyeList.cpu().detach().numpy().tolist()
+    #     clickList=self.clickList.cpu().detach().numpy().tolist()
+    #     lengths=self.lengths.cpu().detach().numpy().tolist()
+    #     actionList=self.actionList.cpu().detach().numpy().tolist()
+    #     maskList=self.maskList.cpu().detach().numpy().tolist()
+    #     rewardList=self.rewardList.cpu().detach().numpy().tolist()
+    #     nclickList=self.nclickList.cpu().detach().numpy().tolist()
+    #     neyeList=self.neyeList.cpu().detach().numpy().tolist()
+    #     nlengths=self.nlengths.cpu().detach().numpy().tolist()
+    #     lastPList=self.lastPList.cpu().detach().numpy().tolist()
+    #     nlastPList=self.nlastPList.cpu().detach().numpy().tolist()
+    #     person=self.person.cpu().detach().numpy().tolist()
+    #     nperson=self.nperson.cpu().detach().numpy().tolist()
+
+    #     scene=self.scene.cpu().detach().numpy().tolist()
+    #     nscene=self.nscene.cpu().detach().numpy().tolist()
+    #     saveDict={}
+    #     saveDict['isFull']=self.isFull
+    #     saveDict['capacity']=self.capacity
+    #     saveDict['cursor']=self.cursor
+    #     if self.isFull:
+    #         subDict={}
+    #         for i in range(self.capacity):
+    #             subDict['eyeList']=eyeList[i]
+    #             subDict['clickList']=clickList[i]
+    #             subDict['lengths']=lengths[i]
+    #             subDict['actionList']=actionList[i]
+    #             subDict['maskList']=maskList[i]
+    #             subDict['rewardList']=rewardList[i]
+    #             subDict['nclickList']=nclickList[i]
+    #             subDict['neyeList']=neyeList[i]
+    #             subDict['nlengths']=nlengths[i]
+    #             subDict['lastPList']=lastPList[i]
+    #             subDict['nlastPList']=nlastPList[i]
+    #             subDict['person']=person[i]
+    #             subDict['nperson']=nperson[i]
+    #             subDict['scene']=scene[i]
+    #             subDict['nscene']=nscene[i]
+    #         saveDict[str(i)]=subDict
+    #     else:
+    #         subDict={}
+    #         for i in range(self.cursor):
+    #             subDict['eyeList']=eyeList
+    #             subDict['clickList']=clickList
+    #             subDict['lengths']=lengths
+    #             subDict['actionList']=actionList
+    #             subDict['maskList']=maskList
+    #             subDict['rewardList']=rewardList
+    #             subDict['nclickList']=nclickList
+    #             subDict['neyeList']=neyeList
+    #             subDict['nlengths']=nlengths
+    #             subDict['lastPList']=lastPList
+    #             subDict['nlastPList']=nlastPList
+    #             subDict['person']=person
+    #             subDict['nperson']=nperson
+    #             subDict['scene']=scene
+    #             subDict['nscene']=nscene
+    #         saveDict[str(i)]=subDict
+    #     f=open(savePath,'w')
+    #     json.dump(saveDict,f,indent=2)
+    #     f.close()
+
+
+from functools import cmp_to_key
+def cmp(x,y):
+    if len(x[0])!=len(y[0]):
+        if len(x[0])>len(y[0]):
+            return 1
+        else:
+            return -1
+    else:
+        if x>y:
+            return 1
+        else:
+            return -1
 # scene
 class DQNRNNTrajectory2(object):
     def __init__(self) -> None:
@@ -668,6 +501,9 @@ class DQNRNNTrajectory2(object):
         self.noAction=[]
         self.action=[]
         self.noActionCorrect=[]
+        self.probs=[]
+        self.timeStamps=[]
+
     # TD(N) N->(0)
 
 
@@ -694,9 +530,8 @@ class DQNRNNTrajectory2(object):
         nsceneList=[]
         for i in range(traLen-1):
             click,eye,goal,action,mask,reward,lastP,length,person,scene=self.newTras[i]
-            # print(click,eye,goal,action,mask,reward)
+
             nclick,neye,ngoal,naction,nmask,nreward,nlastP,nlength,npersion,nscene=self.newTras[i+1]
-            # zTra.append([click,eye,len(eye),goal,action,mask,reward,nclick,neye,len(neye)])
             clickList.append(click) # tensor
             eyeList.append(eye) # tensor
             goalList.append(goal)# long
@@ -740,8 +575,8 @@ class DQNRNNTrajectory2(object):
             sceneList.append(scene)
             nsceneList.append(scene)
 
-        lengths=torch.stack(lengths,dim=0)
-        nlenghts=torch.stack(nlenghts,dim=0)
+        lengths=torch.stack(lengths,dim=0).squeeze()
+        nlenghts=torch.stack(nlenghts,dim=0).squeeze()
 
         npersonList=torch.stack(npersonList,dim=0)
         personList=torch.stack(personList,dim=0)
@@ -756,6 +591,8 @@ class DQNRNNTrajectory2(object):
 
         eyeList=torch.stack(eyeList,dim=0)
         neyeList=torch.stack(neyeList,dim=0)
+        lengths=lengths.reshape(-1)
+        nlenghts=nlenghts.reshape(-1)
         return clickList,eyeList,lastPList,lengths,personList,sceneList,goalList,actionList,rewardList,maskList,nclickList,neyeList,nlastPList,nlenghts,npersonList,nsceneList
 
     # n-> n+1 steps
@@ -801,7 +638,12 @@ class DQNRNNTrajectory2(object):
             # print(f'action {action} p {presents}')
             presents.append(present)
             if action!=12:
+                # print(f'action {action}')
                 present=action
+            else:
+                present=lastP.squeeze().cpu().detach().numpy()[-1]
+                # print(f'present {present} {lastP}')
+                # breakpoint()
             self.rewardFun.addPrediction(present)
             if len(self.rewardFun.prediction)>=3:
                 errorFlags.append(self.rewardFun.judgeError())
@@ -827,7 +669,14 @@ class DQNRNNTrajectory2(object):
     def push(self,*data):
         click,eye,goal,action,mask,lastP,length,person,scene=dp(data)
         # traNum=len(self.tras)
+        length=length.reshape(-1)
         self.tras.append([click,eye,goal,action,mask,lastP,length,person,scene])
+    
+    def pushProbs(self,prob):
+        self.probs.append(prob)
+    
+    def pushTimeStamp(self,timeStamp):
+        self.timeStamps.append(timeStamp)
     
 
     def setGoal(self,goal):
@@ -874,7 +723,6 @@ class DQNRNNTrajectory2(object):
                 endRewards+=reward
             if action!=12:
                 present=action
-            # print(f'present {present} goal{goal} action {action}')
             if present==goal:
                 _in+=1
                 self.corrects.append(1)
@@ -917,7 +765,6 @@ class DQNRNNTrajectory2(object):
             totalReward+=reward
             if int(mask+0.5)==0:
                 endReward=reward
-        # print(self.tras,self.newTras)
         
         return len(self.tras),totalCorrect,endCorrect,totalReward,endReward,IPA2
             
@@ -925,6 +772,13 @@ class DQNRNNTrajectory2(object):
 
     def getCorrects(self):
         return self.corrects
+
+    def everyStepsStr(self):
+        ansStr=''
+        for tra,prob,timeStamp in zip(self.tras,self.probs,self.timeStamps):
+            ansStr+=str(tra)+'\n'+str(prob)+'\n'+str(timeStamp) +'\n'
+        ansStr+='\n'
+        return ansStr
 
     def clear(self):
         self.tras=[]
@@ -935,6 +789,8 @@ class DQNRNNTrajectory2(object):
         self.noAction=[]
         self.action=[]
         self.noActionCorrect=[]
+        self.probs=[]
+        self.timeStamps=[]
     
     
     # def __del__(self):
@@ -973,10 +829,16 @@ class DataCollector(object):
         self.end_idx=0
         # data
         self.saveDistance=[]
+        self.bestSaving=[]
         self.curve=[]
         self.straight=[]
         self.movingTime=[]
         self.groundTruth=[]
+        self.bestSaving=[]
+        self.totalIn=[]
+        self.totalOut=[]
+        self.endIn=[]
+        self.endOut=[]
 
         self.restrict=restrict
         self.restrictArea=[0 ,1, 2 ,3 ,6, 9]
@@ -985,17 +847,22 @@ class DataCollector(object):
         self.eyeRegion=Region('eye')
         self.clickRegion.setRegions(CLICKAREAS)
         self.eyeRegion.setRegions(EYEAREAS)
+        self.beginPoint=[]
+        self.endPoint=[]
+        self.beginTimestamp=''
+        self.endTimestamp=''
 
+ 
         # 1-> origin  2-> not origin
-    
     
     def setMODE(self,MODE):
         self.MODE=MODE
 
-
     def load_dict(self):
         dirs=os.listdir(self.base_path)
         for dir in dirs:
+            if len(dir)<15:
+                continue
             if dir[-6]=='_':
                 if dir[-5]==str(self.MODE):
                     self.files_path.append(os.path.join(self.base_path,dir))
@@ -1008,7 +875,12 @@ class DataCollector(object):
         self.straight=[0 for i in range(self.current_dir_len)]
         self.movingTime=[0 for i in range(self.current_dir_len)]
         self.groundTruth=[0 for i in range(self.current_dir_len)]
+        self.bestSaving=[0 for i in range(self.current_dir_len)]
 
+        self.totalIn=[0 for i in range(self.current_dir_len)]
+        self.totalOut=[0 for i in range(self.current_dir_len)]
+        self.endIn=[0 for i in range(self.current_dir_len)]
+        self.endOut=[0 for i in range(self.current_dir_len)]
 
     def get_file(self, appoint_path=None):
         if appoint_path is not None:
@@ -1062,22 +934,27 @@ class DataCollector(object):
     def get_goal(self):
         flag=-1
         goalFlag=False
-        self.cfile_len=len(self.df)
+        # self.cfile_len=len(self.df)
         if self.goal_nums>0:
             t=self.goal_nums-1
             while t>0:
-                # print(t,self.cfile_len)
                 row=self.df.iloc[t]
                 if np.isnan(row[5]) or np.isnan(row[1]) or np.isnan(row[2]) or np.isnan(row[3]) or np.isnan(row[4]):
                     t-=1
-                flag=row[5]
+                flag=int(row[5])
                 if flag==0:
+                    
                     self.beginPoint=[row[3]*1.25,row[4]*1.25]
+                    self.beginTimestamp=row[0]
                     break
                 t-=1
 
         while self.goal_nums<self.cfile_len:
+
             row=self.df.iloc[self.goal_nums]
+ 
+            if len(row)<6:
+                continue
             if np.isnan(row[5]) or np.isnan(row[1]) or np.isnan(row[2]) or np.isnan(row[3]) or np.isnan(row[4]):
                 self.goal_nums+=1
                 continue  
@@ -1086,6 +963,7 @@ class DataCollector(object):
                 goalFlag=True
                 self.goal=self.clickRegion.judge(row[3]*1.25,row[4]*1.25)
                 self.endPoint=[row[3]*1.25,row[4]*1.25]
+                self.endTimestamp=row[0]
                 break
             self.goal_nums+=1
         while flag ==0 and self.goal_nums<self.cfile_len:
@@ -1104,52 +982,84 @@ class DataCollector(object):
     def get_1round(self):
         t=0
         endFlag=False
-        while len(self.last_goal_list)<3:
-            self.get_goal()
-            self.last_goal_list.append(self.goal)
-
+        self.get3Goal()
         self.get_goal()
+        nowGoal=self.last_goal_list[-1]
         if self.end_idx!=0:
             self.begin_idx=self.end_idx
         self.end_idx=self.goal_nums
         predictX,predictY=-1,-1
-        lastX,lastY=int(self.last_goal_list[-1][0]),int(self.last_goal_list[-1][1])
-        lastTime=-1
+        predictFlag=False
         for i in range(self.begin_idx,self.end_idx):
             row=self.df.iloc[i]
             if len(row)<5:
                 continue
-            if np.isnan(row[5]) or np.isnan(row[1]) or np.isnan(row[2]) or np.isnan(row[3]) or np.isnan(row[4]):
+            if np.isnan(
+                row[5]) or np.isnan(row[1]) or np.isnan(row[2]) or np.isnan(row[3]) or np.isnan(row[4]):
                 continue
-            if lastTime==-1:
-                lastTime=row[0]
+                
             if int(row[8])==1:
+                predictFlag=True
                 predictX,predictY=int(row[6]),int(row[7])
-
-            if lastX!=int(row[3]) or lastY!=int(row[4]):                
-                if predictX!=int(row[3]) or predictY!=int(row[4]):
-                    self.movingTime[self.current_file]+=row[0]-lastTime
-                    self.curve[self.current_file]+=np.sqrt((lastX-row[3])**2+(lastY-row[4])**2)
-            lastTime=row[0]
-            lastX,lastY=int(row[3]),int(row[4])
+                region=self.clickRegion.judge(predictX,predictY)
+                predictAns=self.clickRegion.judgeHeart(region)
+                predictX,predictY=predictAns[0],predictAns[1]
+            if int(row[6])!=0 and int(row[7])!=0:
+                nowRegion=self.clickRegion.judge(row[6],row[7])
+                nowGoal=nowRegion
+                if nowGoal==self.goal:
+                    self.totalIn[self.current_file]+=1
+                else:
+                    self.totalOut[self.current_file]+=1
+                
+            if self.MODE==0:
+                if int(row[6])!=0 and int(row[7])!=0:
+                    predictX,predictY=int(row[6]),int(row[7])
+                    if int(row[8])==1:
+                        region=self.clickRegion.judge(predictX,predictY)
+                        predictAns=self.clickRegion.judgeHeart(region)
+                        predictX,predictY=predictAns[0],predictAns[1]
             if (i==self.end_idx-1) and (self.end_idx>=self.cfile_len-5):
                 endFlag=True
                 break
-        lastGoal=self.last_goal_list[-1]
-
+        if nowGoal==self.goal:
+            self.endIn[self.current_file]+=1
+        else:
+            self.endOut[self.current_file]+=1
+        # if predictFlag:
         if predictX!=-1 and predictY!=-1:
-            originDistance=np.sqrt((lastGoal[0]-self.goal[0])**2+(lastGoal[1]-self.goal[1])**2)
-            movingDistance=np.sqrt((self.goal[0]-predictX)**2+(self.goal[1]-predictY)**2)
-            self.saveDistance[self.current_file-1]+=originDistance-movingDistance
-            self.groundTruth[self.current_file-1]+=originDistance
+            endRegion=self.clickRegion.judge(self.endPoint[0],self.endPoint[1])
+            originDistance=np.sqrt((self.beginPoint[0]-self.endPoint[0])**2+(self.beginPoint[1]-self.endPoint[1])**2)
+            movingDistance=np.sqrt((self.endPoint[0]-predictX)**2+(self.endPoint[1]-predictY)**2)
+            self.saveDistance[self.current_file]+=originDistance-movingDistance
+            self.groundTruth[self.current_file]+=originDistance
+            bestPredict=self.clickRegion.judgeHeart(endRegion)
+            bestDis=np.sqrt((self.endPoint[0]-bestPredict[0])**2+(self.endPoint[1]-bestPredict[1])**2)
+            self.bestSaving[self.current_file]+=originDistance-bestDis
+            # if (originDistance-movingDistance)<0:
+            print(self.beginPoint,self.endPoint,predictX,predictY,originDistance,movingDistance,originDistance-movingDistance,self.beginTimestamp,self.endTimestamp)
+        else:
+            # pass
+            beginRegion=self.clickRegion.judge(self.beginPoint[0],self.beginPoint[1])
+            endRegion=self.clickRegion.judge(self.endPoint[0],self.endPoint[1])
+            if beginRegion!=endRegion:
+                bestPredict=self.clickRegion.judgeHeart(endRegion)
+                bestDis=np.sqrt((self.endPoint[0]-bestPredict[0])**2+(self.endPoint[1]-bestPredict[1])**2)
+                originDistance=np.sqrt((self.beginPoint[0]-self.endPoint[0])**2+(self.beginPoint[1]-self.endPoint[1])**2)
+                self.saveDistance[self.current_file]+=0
+                self.groundTruth[self.current_file]+=originDistance
+                self.bestSaving[self.current_file]+=originDistance-bestDis
+                # print(self.beginPoint,self.endPoint,predictX,predictY,originDistance,beginRegion,endRegion)
         self.last_goal_list.append(self.goal)
         if self.end_idx>=self.cfile_len or endFlag:
             self.file_finish=True
         self.states_idx=0
    
     def tallySaving(self):
+
         self.load_dict()
         flag=self.get_file()
+        print(self.files_path[self.current_file])
         if flag==False:
             print('error')
             return False,'error'
@@ -1157,31 +1067,64 @@ class DataCollector(object):
             self.get_1round()
             if self.file_finish:
                 flag=self.get_file()
+                if flag:
+                    print(self.files_path[self.current_file])
         ansList=[]
-        for f,curve,dis,mt,gt in zip(self.files_path,self.curve,self.saveDistance,self.movingTime,self.groundTruth):
-            ansList.append([f,dis,curve,mt,dis/gt,gt])
-        ansList=sorted(ansList,key= lambda x :x[0])
-        return ansList
+        for f,dis,s,totalIn,totalout,endIn,endOut,bdis in zip(self.files_path,self.saveDistance,self.groundTruth,self.totalIn,self.totalOut,self.endIn,self.endOut,self.bestSaving):
+            ansList.append([f,dis,s,totalIn,totalout,totalIn/(totalIn+totalout),endIn,endOut,endIn/(endIn+endOut),bdis])
+        ansList1=sorted(ansList,key=cmp_to_key(cmp))
+        return ansList1
     
+    def tallyCurrentFileStraight(self):
+        self.cfile_len=len(self.df)
+        k=self.goal_nums
+        beginX,beginY=-1,-1
+        while k>0:
+            row=self.df.iloc[k]
+            if len(row)<5:
+                continue
+            if np.isnan(row[5]) or np.isnan(row[1]) or np.isnan(row[2]) or np.isnan(row[3]) or np.isnan(row[4]):
+                continue
+            if int(row[5])==0:
+                beginX,beginY=int(1.25*row[3]),int(1.25*row[4])
+                break
+            k-=1
+
+        for i in range(k,self.cfile_len):
+            row=self.df.iloc[i]
+            if len(row)<5:
+                continue
+            if np.isnan(row[5]) or np.isnan(row[1]) or np.isnan(row[2]) or np.isnan(row[3]) or np.isnan(row[4]):
+                continue
+            if int(row[5])==0:
+                X,Y=int(1.25*row[3]),int(1.25*row[4])
+                # print(self.files_path,self.current_file,self.current_dir_len)
+                self.straight[self.current_file]+=np.sqrt((X-beginX)**2+(Y-beginY)**2)
+                beginX,beginY=X,Y
+
     def get3Goal(self):
-        k=0
-        goalList=[]
-        self.goal_nums=0
-        while len(goalList)<3 and (not self.file_finish):
+        if len(self.last_goal_list)<3:
+            self.goal_nums=0
+            self.last_goal_list=[]
+        else:
+            return self.goal_nums
+        while len(self.last_goal_list)<3 and (not self.file_finish):
                 self.get_goal()
-                if (len(goalList)==0 or goalList[-1]!=self.goal) and (not self.file_finish):
+                if (len(self.last_goal_list)==0 or self.last_goal_list[-1]!=self.goal) and (not self.file_finish):
                     # print(self.goal,self.cfile_len,self.goal_nums,self.files_path[self.current_file])
                     if (self.goal in self.restrictArea):
                         self.begin_idx=self.goal_nums
                         if self.restrict:
                             continue
                         else:
-                            goalList.append(self.goal)        
+                            self.last_goal_list.append(self.goal)        
                     else:
-                        goalList.append(self.goal)
+                        self.last_goal_list.append(self.goal)
                 
         # row=self.df.iloc[self.goal_nums]
         # # print(row[3]*1.25,row[4]*1.25)
+        self.tallyCurrentFileStraight()
+        # print(self.straight)
         return self.goal_nums
 
     def tallyOffLineCurveAndStraightLineAndMovingTime(self):
@@ -1191,6 +1134,7 @@ class DataCollector(object):
         movingTime=[0 for i in range(self.current_dir_len)]
         curve=[0 for i in range(self.current_dir_len)]
         for i in range(self.current_dir_len):
+            self.current_file=i
             lastTime=0
             self.df=pd.read_csv(self.files_path[i],header=None)
             df=pd.read_csv(self.files_path[i],header=None)
@@ -1247,6 +1191,7 @@ class DataCollector(object):
         self.restrict=restrict
         # print(self.restrict)
         # print(savePath)
+        t=0
         clickRegion=Region('click')
         clickRegion.setRegions(CLICKAREAS)
         preTest=PresentsRecorder(len(testAllEnvs))
@@ -1262,6 +1207,9 @@ class DataCollector(object):
         f=open(savePath,'w')
         f.write('write\n')
         f.close()
+        print(len(testAllEnvs))
+        # breakpoint()
+        total=0
         for i in range(len(testAllEnvs)):
             testAllEnvs[i].load_dict()
             testAllEnvs[i].get_file()
@@ -1286,7 +1234,7 @@ class DataCollector(object):
                         preTest.init(i,ans[1])
                     lastP=torch.tensor([preTest.getLastPresents(i)],dtype=torch.long).to(device)
                     ansRegion=int(agent.act(click,eye,lastP,lengths,person,scene))
-                    preTest.add(i,ans)
+                    preTest.add(i,ansRegion)
                     if nowPredict[0]==-1:
                         subRegion=clickRegion.judgeHeart(ans[1][-1])
                         nowPredict[0],nowPredict[1]=subRegion[0],subRegion[1]
@@ -1294,8 +1242,10 @@ class DataCollector(object):
                         heart=clickRegion.judgeHeart(ansRegion)
                         nowPredict[0],nowPredict[1]=heart[0],heart[1]
                     # ans -> eye click goal isEnd
-                    
+                    # print(ans)
+                    # breakpoint()
                     if ans[3]==1:
+                        total+=1
                         if nowPredict[0]==-1 and nowPredict[1]==-1:
                             continue
                         beginPoint=dp(ans[-2])
@@ -1306,17 +1256,21 @@ class DataCollector(object):
                         trueDis=np.sqrt((nowPredict[0]-endPoint[0])**2+(nowPredict[1]-endPoint[1])**2)
                         savingDis+=(dis-trueDis)
                         totalDis+=dis
+                        # print(beginPoint,endPoint,testAllEnvs[i].goal,ans)
                         # print(beginPoint,endPoint,nowPredict,dis,trueDis,dis-trueDis)
                         nowPredict=[-1,-1]
+            # print(total)
+            # breakpoint()
             self.files_path=dp(testAllEnvs[i].files_path)
             self.current_dir_len=len(self.files_path)
-            lineInfo=self.tallyOffLineCurveAndStraightLineAndMovingTime()
+            # self.current_file=
+            # lineInfo=self.tallyOffLineCurveAndStraightLineAndMovingTime()
             straight=0
-            for l in lineInfo:
-                straight+=l[1]
+            # for l in lineInfo:
+            #     straight+=l[1]
 
             with open(savePath,'a',encoding='UTF-8') as f:
-                f.write('num: '+str(testAllNum[i])+' scene: '+str(testAllScene[i])+' savingdis: '+str(savingDis)+' straightDis: '+str(straight)+' totalDis: '+str(totalDis)+'\n')
+                f.write('num: '+str(testAllNum[i])+' scene: '+str(testAllScene[i])+' savingdis: '+str(savingDis/testAllEnvs[i].current_dir_len)+' straightDis: '+str(straight)+' totalDis: '+str(totalDis)+'\n')
             totalDis=0
 
   
@@ -1331,6 +1285,13 @@ CLICKAREAS=[[0,0,1300,1080],[1300,0,1920,390],[1300,390,1920,1080],
           [0+1920,0,560+1920,260],[0+1920,260,560+1920,670],[0+1920,670,560+1920,1080],#left
           [560+1920,0,1360+1920,680],[560+1920,680,975+1920,1080],[975+1920,680,1380+1920,1080],#mid
           [1380+1920,0,1920+1920,260],[1380+1920,260,1920+1920,680],[1380+1920,680,1920+1920,1080]]# right
+
+
+MOVEAREAS=[[686.0 , 532.0],[1569.0 , 243.0],[1536.0 , 569.0],
+           [2241.0 , 179.0],[2212.0 , 490.0],[2220.0 , 817.0],
+           [2880.0 , 610.0],[2684.0 , 871.0],[3051.0 , 875.0],
+           [3542.0 , 179.0],[3574.0 , 413.0],[3567.0 , 820.0]]
+
 class Region(object):
 
     def __init__(self,name):
@@ -1343,6 +1304,7 @@ class Region(object):
 
 
     def setRegions(self,regions):
+
         number=0
         for region in regions:
             self.regions.append(region)
@@ -1350,6 +1312,7 @@ class Region(object):
             number+=1
             self.regionHeart.append([0.5*(region[0]+region[2]),0.5*(region[1]+region[3])])
         self.counting=[0 for i in range(number+4)]
+        self.regionHeart=MOVEAREAS
     
     def judge(self,x,y):
         # if self.name=='click':
@@ -1417,7 +1380,6 @@ def getTimeStamp():
     ans=timeFormat.strftime('%Y%m%d%H%M%S')
     return ans
 
-
 class DQNDataRecorder(object):
     def __init__(self,fillSize,size,callFunc,strFunc) -> None:
         self.list=[[0 for i in range(fillSize+1)] for i in range(size+1)]
@@ -1483,55 +1445,103 @@ def tallyOfflineDis():
     filePath=os.path.join(filePath,str(fileNum))
     if not os.path.exists(filePath):
         os.makedirs(filePath)
-    for k in range(2,6):
+    loadPaths=['/home/wu_tian_ci/drl_project/mymodel/dqn/dqnonline/onlinedata/20231228/model/191200/onlineModel.pt',
+               '/home/wu_tian_ci/drl_project/mymodel/dqn/dqnonline/onlinedata/20231228/model/214020/onlineModel.pt',
+               '/home/wu_tian_ci/drl_project/mymodel/dqn/dqnonline/onlinedata/20231229/model/003342/onlineModel.pt']
+    testEnv=['23','24','25','26','27','28']
+    for k in range(1,4):
+        envs=testEnv[0:k*2]
+        loadPath=loadPaths[k-1]
+        agent.load(loadPath)
         for env in envs:
-            loadPath=os.path.join(basePath,str(k),env,'best.pt')
-            agent.load(loadPath)
             testAllEnvs=[]
             testAllNum=[]
             testAllScene=[]
             savePath=os.path.join(filePath,str(k),env)
             if not os.path.exists(savePath):
                 os.makedirs(savePath)
-            for scene in range(1,5):
-                testEnvPath=os.path.join('/home/wu_tian_ci/eyedata/seperate/',env,str(scene))
+            for scene in range(3,4):
+                testEnvPath=os.path.join('/home/wu_tian_ci/dataset/mix',env,str(scene))
                 testAllEnvs.append(DQNRNNEnv(base_path=testEnvPath,num=int(env),scene=int(scene),restrict=True))
                 testAllNum.append(int(env))
                 testAllEnvs[-1].shuffle=False
-                testAllEnvs[-1].topN=5
+                testAllEnvs[-1].topN=0
                 testAllEnvs[-1].eval=True
+                testAllEnvs[-1].MODE=1
+                testAllEnvs[-1].mode=True
                 testAllScene.append(scene)
-                testAllEnvs[-1].restrict=restrict[k-2]
-            dt=DataCollector('',MODE=0)
-
-            dt.tallySavingDisFromAgent(agent,testAllEnvs,testAllNum,testAllScene,device,savePath,restrict[k-2])
+                testAllEnvs[-1].restrict=True
+                testAllEnvs[-1].load_dict()
+                testAllEnvs[-1].get_file()
+                t=0
+                while True:
+                    flag=testAllEnvs[-1].act()
+                    t+=1
+                    if flag==False:
+                        break
+                    # print(flag)
+                # print(t)
+                # breakpoint()
+            dt=DataCollector('',MODE=1)
+            print(envs)
+            dt.tallySavingDisFromAgent(agent,testAllEnvs,testAllNum,testAllScene,device,savePath,True)
 
 
 if __name__ == '__main__':
-    tallyOfflineDis()
+    # tallyOfflineDis()
     # env=[]
     # for i in range(17,22): 
     #     env.append(str(i))
 
-
-    # env=['23']
-    # for i in range(len(env)):
-    #     for j in range(1,5):
-    #         if j ==3:
-    #             continue
-    #         basePath='/home/wu_tian_ci/eyedatanew'
-    #         filePath=os.path.join(basePath,env[i],str(j))
-    #         # print(filePath)
-    #         dt=DataCollector(filePath,MODE=0)
-    #         saving=dt.tallyOffLineCurveAndStraightLineAndMovingTime()
-    #         savingDis,movingDis,movingT=[],[],[]
-    #         for item in saving:
-    #             # print(item)
-    #             savingDis.append(item[1])
-    #             movingDis.append(item[2])
-    #             movingT.append(item[3])
-    #         print(i,j,' ',int(np.mean(savingDis)),int(np.mean(movingDis)),int(np.mean(movingT)/1000))
-    #     print('')
+    timeStamp=getTimeStamp()[0:-6]
+    # env=['33','34','37','38','41','23','27','28','30','32']
+    env=[]
+    for i in range(23,29):
+        env.append(str(i))
+    # env=['24']
+    basePath='/home/wu_tian_ci/drl_project/mymodel/dqn/offlinedatatally'
+    storePath=os.path.join(basePath,timeStamp)
+    if not os.path.exists(storePath):
+        os.makedirs(storePath)
+    fileNum=len(os.listdir(storePath))
+    storePath=os.path.join(storePath,str(fileNum))
+    if not os.path.exists(storePath):
+        os.makedirs(storePath)
+    for i in range(len(env)):
+        savePath=os.path.join(storePath,env[i])
+        if not os.path.exists(savePath):
+            os.makedirs(savePath)
+        writePath=os.path.join(savePath,'tally.txt')
+        f=open(writePath,'w')
+        f.write('offline\n')
+        f.close()
+        for m in [0,1]:
+            with open(writePath,'a') as f:
+                f.write(str(m)+'\n')
+            for j in range(3,4):
+                basePath=''
+                basePath1='/home/wu_tian_ci/dataset/mix'
+                basePath2='/home/wu_tian_ci/dataset/mix'
+                filePath=os.path.join(basePath1,env[i],str(j))
+                if not os.path.exists(filePath):
+                    filePath=os.path.join(basePath2,env[i],str(j))
+                # print(filePath)
+                dt=DataCollector(filePath,MODE=m)
+                dt.restrict=True
+                saving=dt.tallySaving()
+                savingDis,movingDis,movingT=[],[],[]
+                for item in saving:
+                    # print(item)
+                    print(f'file{item[0]}')
+                    print(item[5],item[8],item[1],item[2],item[3],item[4],item[6],item[7])
+                    print(item[0],item[1],item[2],item[3],item[4],item[5],item[6],item[7],item[8])
+                    with open(writePath,'a') as f:
+                        f.write(item[0]+'\n'+str(item[5])+' '+str(item[8])+' '+str(item[1])+' '+str(item[2])+' '+str(item[3])+' '+str(item[4])+' '+\
+                                str(item[6])+' '+str(item[7])+' '+str(item[-1])+'\n')
+                    savingDis.append(item[1])
+                # print(savingDis)
+                # print(i,j,' ',int(np.mean(savingDis)))
+        print('')
     
 
     

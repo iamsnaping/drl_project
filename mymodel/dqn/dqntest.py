@@ -93,7 +93,8 @@ def testFun(agent,testAllEnvs,testAllNum,testAllScene):
     stopFlags=[False for i in range(len(testAllEnvs))]
     surviveFlags=len(testAllEnvs)
 
-    numFlag=surviveFlags//3
+    numFlag=surviveFlags//4
+    # numFlag=surviveFlags
     testTras=[DQNRNNTrajectory2() for i in range(surviveFlags)]
     testEndInS=[[0 for i in range(5)] for i in range(numFlag)]
     testEndOutS=[[0 for i in range(5)] for i in range(numFlag)]
@@ -181,7 +182,6 @@ def testFun(agent,testAllEnvs,testAllNum,testAllScene):
     return testEndInS,testEndOutS,testInS,testOutS,testErrorsS,testLenS
         
 
-
 def train_epoch(agent:REMAgent2, device,testEnvs,topN=5,store_path=None,load=False,loadPath='',restrict=True):
     agent.online.to(device)
     agent.target.to(device)
@@ -203,35 +203,28 @@ def train_epoch(agent:REMAgent2, device,testEnvs,topN=5,store_path=None,load=Fal
     testAllScene=[]
 
     for scene in range(1,5):
-        if scene==3:
-            continue
-
         for env in testEnvs:
-            # testEnvPath=os.path.join('/home/wu_tian_ci/eyedata/seperate',env,str(scene))
-            testEnvPath=os.path.join('/home/wu_tian_ci/eyedatanew',env,str(scene))
-            print(testEnvPath)
-            testAllEnvs.append(DQNRNNEnv(testEnvPath,num=int(env),scene=int(scene),restrict=restrict,MODE=0))
+            testEnvPath=os.path.join('/home/wu_tian_ci/eyedata/seperate',env,str(scene))
+            testAllEnvs.append(DQNRNNEnv(testEnvPath,num=int(env),scene=int(scene),restrict=restrict))
             testAllNum.append(int(env))
             testAllEnvs[-1].shuffle=False
             testAllEnvs[-1].topN=0
             testAllEnvs[-1].eval=True
+            testAllEnvs[-1].mode=True
             testAllScene.append(scene)
 
-
-    for tt in testEnvs:
-       # pre-test
-
-        testEndInS,testEndOutS,testInS,testOutS,testErrorsS,testLenS=testFun(agent,testAllEnvs,testAllNum,testAllScene)
-        for j in range(len(testEnvs)):
-            testErrorR='\nerror: '
-            testAccR='\nIPA1: '
-            testEndAccR='\nIPA2: ' 
-            for i in range(1,5):
-                testEndAccR+=str(i)+' '+str(round(testEndInS[j][i]/(testEndInS[j][i]+testEndOutS[j][i]) if (testEndInS[j][i]+testEndOutS[j][i])>0  else 0 ,2))+' '
-                testAccR+=str(i)+' '+str(round(testInS[j][i]/(testInS[j][i]+testOutS[j][i]) if (testInS[j][i]+testOutS[j][i])>0  else 0 ,2))+' '
-                testErrorR+=str(i)+' '+str(round(testErrorsS[j][i]/testLenS[j][i] if testLenS[j][i]>0  else 0 ,2))+' '
-            with open(preTestInfos[j],'a',encoding='UTF-8') as f:
-                f.write('\npretest trainenv: '+tt+'\n+env: '+str(j+17)+'\n'+testErrorR+testAccR+testEndAccR+'\n')
+    testEndInS,testEndOutS,testInS,testOutS,testErrorsS,testLenS=testFun(agent,testAllEnvs,testAllNum,testAllScene)
+    #     # print(testEndInS,testEndOutS,testInS,testOutS,testErrorsS,testLenS)
+    for j in range(len(testEnvs)):
+        testErrorR='\nerror: '
+        testAccR='\nIPA1: '
+        testEndAccR='\nIPA2: ' 
+        for i in range(5):
+            testEndAccR+=str(i)+' '+str(round(testEndInS[j][i]/(testEndInS[j][i]+testEndOutS[j][i]) if (testEndInS[j][i]+testEndOutS[j][i])>0  else 0 ,2))+' '
+            testAccR+=str(i)+' '+str(round(testInS[j][i]/(testInS[j][i]+testOutS[j][i]) if (testInS[j][i]+testOutS[j][i])>0  else 0 ,2))+' '
+            testErrorR+=str(i)+' '+str(round(testErrorsS[j][i]/testLenS[j][i] if testLenS[j][i]>0  else 0 ,2))+' '
+        with open(preTestInfos[j],'a',encoding='UTF-8') as f:
+            f.write('\npretest trainenv: '+'\n+env: '+str(j+17)+'\n'+testErrorR+testAccR+testEndAccR+'\n')
 
         '''
         
@@ -255,7 +248,7 @@ if __name__=='__main__':
             raise argparse.ArgumentTypeError('Boolean value expected.')
 
     parser=argparse.ArgumentParser()
-    parser.add_argument('-cuda',type=str,default='cuda:1')
+    parser.add_argument('-cuda',type=str,default='cuda:0')
     parser.add_argument('-sup',type=str,default='50')
     parser.add_argument('-preload',type=str2bool,default=True)
     parser.add_argument('-topN',type=int,default=5)
@@ -265,24 +258,23 @@ if __name__=='__main__':
     # iteration flag true->iteration donot use before False->iteration use before
     parser.add_argument('-load',type=str2bool,default=False)
     parser.add_argument('-idFlag',type=str2bool,default=True)
-    parser.add_argument('-restrict',type=str2bool,default=False)
+    parser.add_argument('-restrict',type=str2bool,default=True)
     # TRUE -> skip the scene three
 
     args=parser.parse_args()
     print(args.idFlag)
     print(args.load)
     device = torch.device(args.cuda if torch.cuda.is_available() else 'cpu')
-    agent=REMAgent2(device=device,rnn_layer=args.layers,embed_n=args.embed,idFlag=args.idFlag)
     store=UTIL.getTimeStamp()
     actor_load=''
-    if args.preload:
-        # no id
-        if args.idFlag==False:
-            actor_load='/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231214/trainallscene/181521/dqnnetoffline.pt'
-        # id
-        else:
-            actor_load='/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231222/offline/5/dqnnetoffline.pt'
-        agent.load(actor_load)
+    # if args.preload:
+    #     # no id
+    #     if args.idFlag==False:
+    #         actor_load='/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231214/trainallscene/181521/dqnnetoffline.pt'
+    #     # id
+    #     else:
+    #         actor_load='/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231222/offline/5/dqnnetoffline.pt'
+    #     agent.load(actor_load)
     # else:
     #     actor_load='/home/wu_tian_ci/drl_project/mymodel/ddpg/pretrain_data/ddpg_train/1last_move5/ActorNet.pt'
     mainPath=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/',store[0:-6],'test')
@@ -295,7 +287,8 @@ if __name__=='__main__':
     print(args.sup)
 
     envs=[]
-    for i in range(17,22):
+    envTest=[6, 11, 7, 4, 13]
+    for i in envTest:
         if i<10:
             envs.append('0'+str(i))
         else:
@@ -333,18 +326,23 @@ if __name__=='__main__':
         if args.sup!='50':
             f.write('\n'+args.sup)
     loadBasePath='/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231221/offline'
-    restrict=[True,False,False,True]
-    testEnvs=['23']
+    restrict=[True,True,True,True,True]
+    testEnvs=['23','24','25','26','27','28']
+    loadPaths=['/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20240109/trainallscene/0/dqnnetoffline.pt',
+               '/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20240109/trainallscene/1/dqnnetoffline.pt',
+               '/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20240109/trainallscene/2/dqnnetoffline.pt',
+               '/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20240109/trainallscene/3/dqnnetoffline.pt',
+               '/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20240109/trainallscene/5/dqnnetoffline.pt']
     print(testEnvs)
-    for i in range(4):
-        for env in testEnvs:
-            store_path_=os.path.join(store_path,str(i),env)
-            if restrict[i]==True:
-                loadPath='/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231221/trainallscene/restrict/dqnnetoffline.pt'
-            else:
-                loadPath='/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231221/trainallscene/restrict2/dqnnetoffline.pt'
-            if not os.path.exists(store_path_):
-                os.makedirs(store_path_)
-            agent.load(loadPath)
-            train_epoch(agent,device,store_path=store_path_,testEnvs=[env],topN=args.topN,load=args.load,loadPath=actor_load,\
-                        restrict=restrict[i])
+    envs=[]
+    for i in range(17,22):
+        envs.append(str(i))
+    for i in range(5):
+        agent=REMAgent2(device=device,rnn_layer=args.layers,embed_n=args.embed,flag=i+1)
+        store_path_=os.path.join(store_path,str(i),envs[0]+'_'+envs[-1])
+        loadPath=loadPaths[i]
+        if not os.path.exists(store_path_):
+            os.makedirs(store_path_)
+        agent.load(loadPath)
+        train_epoch(agent,device,store_path=store_path_,testEnvs=envs,topN=args.topN,load=args.load,loadPath=actor_load,\
+                    restrict=restrict[i])

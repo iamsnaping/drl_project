@@ -8,64 +8,6 @@ os.chdir(sys.path[0])
 import time
 import json
 
-def trans_num(nums):
-    number=0.
-    flag=1
-    # print(nums)
-    nums=nums.replace('\n','')
-    for i in nums:
-        if i=='':
-            continue
-        if i=='-':
-            flag=-1
-        else:
-            number*=10
-            number+=int(i)
-    return flag*number
-
-
-def trans_nums(nums):
-    n = []
-    for num in nums:
-        if num=='':
-            continue
-        n.append(trans_num(num))
-    return n
-
-class dataset_loader(Dataset):
-    def __init__(self, data_path):
-        super(dataset_loader, self).__init__()
-        d_path=os.path.join(data_path,'*.txt')
-        self.data_path = glob.glob(d_path)
-
-    def __getitem__(self, item):
-        txt_path = self.data_path[item]
-        nums = []
-        with open(txt_path) as f:
-            lines = f.readlines()
-            for line in lines:
-                line=line.replace('\n','')
-                nums.append(trans_nums(line.split(' ')))
-        eye_list =nums[0]
-        # next_eye_list=nums[1]
-        last_goal=nums[1]
-        if len(last_goal)==2:
-            print(eye_list)
-            print(last_goal)
-            print(nums[2])
-            print(txt_path)
-            breakpoint()
-        goal=nums[2]
-        flag=nums[3]
-        # s_=nums[2]
-        return torch.tensor(eye_list,dtype=torch.float32).reshape(1,-1),\
-        torch.tensor(last_goal,dtype=torch.float32).reshape(1,-1),\
-               torch.tensor(goal,dtype=torch.float32).reshape(1,-1)
-
-
-    def __len__(self):
-        return len(self.data_path)
-
 
 
 

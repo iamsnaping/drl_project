@@ -107,15 +107,13 @@ class NumRecorder(object):
     def clear(self):
         self.recoder=[0 for i in range(self.nums)]
 
-def testFun(agent,testAllEnvs,testAllNum,testAllScene,thr):
+def testFun(agent,testAllEnvs,testAllNum,testAllScene):
 
     preTest=PresentsRecorder(len(testAllEnvs))
     stopFlags=[False for i in range(len(testAllEnvs))]
     surviveFlags=len(testAllEnvs)
-    if thr:
-        numFlag=surviveFlags//3
-    else:
-        numFlag=surviveFlags//4
+
+    numFlag=surviveFlags//4
     testTras=[DQNRNNTrajectory2() for i in range(surviveFlags)]
     testEndInS=[[0 for i in range(5)] for i in range(numFlag)]
     testEndOutS=[[0 for i in range(5)] for i in range(numFlag)]
@@ -205,7 +203,7 @@ def testFun(agent,testAllEnvs,testAllNum,testAllScene,thr):
 def train_epoch(agent:REMAgent, lr,
                  epochs, batch_size,device,mode,multienvs,testEnvs,
                  topN=5,remBlocskNum=5,randLow=2,randHigh=17,randSize=5,skipFlag=False,
-                 store_path=None,addPre=True,iterationFlag=True,load=False,loadPath='',restrict=False,thr=False):
+                 store_path=None,addPre=True,iterationFlag=True,load=False,loadPath='',restrict=False):
     agent.online.to(device)
     agent.target.to(device)
     EPOSILON_DECAY=epochs
@@ -257,10 +255,8 @@ def train_epoch(agent:REMAgent, lr,
     testNum=[]
     trainSceneNum=[]
     testSceneNum=[]
-    if addPre==True:
+    if addPre==True: 
         for scene in range(1,5):
-            if thr and scene==3:
-                continue
             for env in multienvs:
                 envPath=os.path.join('/home/wu_tian_ci/eyedata/seperate/',env,str(scene))
                 envs.append(DQNRNNEnv(envPath),restrict=restrict)
@@ -277,8 +273,7 @@ def train_epoch(agent:REMAgent, lr,
     testAllScene=[]
 
     for scene in range(1,5):
-        if thr and scene==3:
-            continue
+
         for env in testEnvs:
             testEnvPath=os.path.join('/home/wu_tian_ci/eyedata/seperate/',env,str(scene))
             testAllEnvs.append(DQNRNNEnv(testEnvPath,num=int(env),scene=int(scene),restrict=restrict))
@@ -290,8 +285,7 @@ def train_epoch(agent:REMAgent, lr,
 
 
     for scene in range(1,5):
-        if thr and scene==3:
-            continue
+
         for env in testEnvs:
             testEnvPath=os.path.join('/home/wu_tian_ci/eyedata/seperate/',env,str(scene))
             testenvs.append(DQNRNNEnv(testEnvPath,restrict=restrict))
@@ -334,8 +328,7 @@ def train_epoch(agent:REMAgent, lr,
             trainSceneNum=[]
             agent.load(loadPath)
         for scene in range(1,5):
-            if thr and scene==3:
-                continue
+
             testEnvPath=os.path.join('/home/wu_tian_ci/eyedata/seperate/',tt,str(scene))
             envs.append(DQNRNNEnv(testEnvPath,restrict=restrict))
             envFlags.append(False)
@@ -347,7 +340,7 @@ def train_epoch(agent:REMAgent, lr,
             prTrain.addRecorder()
         # pre test
 
-        testEndInS,testEndOutS,testInS,testOutS,testErrorsS,testLenS=testFun(agent,testAllEnvs,testAllNum,testAllScene,thr)
+        testEndInS,testEndOutS,testInS,testOutS,testErrorsS,testLenS=testFun(agent,testAllEnvs,testAllNum,testAllScene)
         for j in range(len(testEnvs)):
             testErrorR='\nerror: '
             testAccR='\nIPA1: '
@@ -608,7 +601,7 @@ def train_epoch(agent:REMAgent, lr,
             else:
                 t_reward.append(np.mean(rewards))
 
-            testEndInS,testEndOutS,testInS,testOutS,testErrorsS,testLenS=testFun(agent,testAllEnvs,testAllNum,testAllScene,thr)
+            testEndInS,testEndOutS,testInS,testOutS,testErrorsS,testLenS=testFun(agent,testAllEnvs,testAllNum,testAllScene)
             with open(testInfo,'a',encoding='UTF-8') as f:
                 f.write('\n'+'testnum:' +str(testNum)+'epochs: '+str(K)+'\n')
             for j in range(len(testEnvs)):
@@ -670,7 +663,7 @@ def train_epoch(agent:REMAgent, lr,
                         f.write('\nenv: '+str(j+np.min(trainNum))+'\n'+trainErrorR+trainAccR+trainEndAccR+'\n')
         
         agent.load(envBestModel)
-        testEndInS,testEndOutS,testInS,testOutS,testErrorsS,testLenS=testFun(agent,testAllEnvs,testAllNum,testAllScene,thr)
+        testEndInS,testEndOutS,testInS,testOutS,testErrorsS,testLenS=testFun(agent,testAllEnvs,testAllNum,testAllScene)
         for j in range(len(testEnvs)):
             testErrorR='\nerror: '
             testAccR='\nIPA1: '
@@ -703,7 +696,7 @@ if __name__=='__main__':
     parser.add_argument('-net',type=int,default=1)
     parser.add_argument('-sup',type=str,default='50')
     parser.add_argument('-preload',type=str2bool,default=True)
-    parser.add_argument('-lr',type=float,default=0.0005)
+    parser.add_argument('-lr',type=float,default=0.00005)
     parser.add_argument('-layers',type=int,default=5)
     parser.add_argument('-embed',type=int,default=128)
     parser.add_argument('-rems',type=int,default=5)
@@ -712,49 +705,43 @@ if __name__=='__main__':
     parser.add_argument('-low',type=int,default=2)
     parser.add_argument('-high',type=int,default=15)
     parser.add_argument('-skipN',type=int,default=10)
-    parser.add_argument('-epochs',type=int,default=500)
+    parser.add_argument('-epochs',type=int,default=30)
     parser.add_argument('-batchsize',type=int,default=256)
     parser.add_argument('-addPre',type=str2bool,default=False)
     # iteration flag true->iteration donot use before False->iteration use before
-    parser.add_argument('-itFlag',type=str2bool,default=False)
+    parser.add_argument('-itFlag',type=str2bool,default=True)
     parser.add_argument('-load',type=str2bool,default=False)
-    parser.add_argument('-idFlag',type=str2bool,default=False)
-    parser.add_argument('-restrict',type=str2bool,default=False)
-    # TRUE -> skip the scene three
-    parser.add_argument('-thr',type=str2bool,default=False)
+    parser.add_argument('-restrict',type=str2bool,default=True)
     parser.add_argument('-path',type=str,default='restrict')
+    parser.add_argument('-agentFlag',type=int,default=1)
     args=parser.parse_args()
-    print(args.idFlag)
     print(args.load)
     device = torch.device(args.cuda if torch.cuda.is_available() else 'cpu')
-    agent=REMAgent2(device=device,rnn_layer=args.layers,embed_n=args.embed,idFlag=args.idFlag)
+    agent=REMAgent2(device=device,rnn_layer=args.layers,embed_n=args.embed,flag=args.agentFlag)
     store=UTIL.getTimeStamp()
     actor_load=''
-    if args.preload:
-        # no id
-        if args.idFlag==False:
-            actor_load='/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231214/trainallscene/181521/dqnnetoffline.pt'
-        # id
-        else:
-            # actor_load='/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231221/trainallscene/restrict/dqnnetoffline.pt'
-            actor_load=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231221/trainallscene/',args.path,'dqnnetoffline.pt')
-        agent.load(actor_load)
-    # else:
-    #     actor_load='/home/wu_tian_ci/drl_project/mymodel/ddpg/pretrain_data/ddpg_train/1last_move5/ActorNet.pt'
+
+    loadPath=[
+        '/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20240110/chooseway/4/model.pt',
+        '/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20240110/chooseway/3/model.pt',
+        '/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20240110/chooseway/2/model.pt',
+        '/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20240110/chooseway/0/model.pt',
+        '/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20240110/chooseway/1/model.pt'
+
+    ]
+    agent.load(loadPath[args.agentFlag-1])
+    # if args.preload:
+
+    #     actor_load='/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20240102/trainallscene/pre/dqnnetoffline.pt'
+    #     # actor_load=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/20231221/trainallscene/',args.path,'dqnnetoffline.pt')
+    #     agent.load(actor_load)
+
     mainPath=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/offlinedqn/',store[0:-6],'offline')
     if not os.path.exists(mainPath):
         os.makedirs(mainPath)
     fileNum=len(os.listdir(mainPath))
     store_path=os.path.join(mainPath,str(fileNum))
-    # json_path=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/json_path/',store[0:-6],'offline',store[-6:])
-    # value_path=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/value_path/',store[0:-6],'offline',store[-6:])
-    # critic_loss_path=os.path.join('/home/wu_tian_ci/drl_project/mymodel/dqn/pretrain_data/critic_loss/',store[0:-6],'offline',store[-6:])
-    # if not os.path.exists(json_path):
-    #     os.makedirs(json_path)
-    # if not os.path.exists(value_path):
-    #     os.makedirs(value_path)
-    # if not os.path.exists(critic_loss_path):
-    #     os.makedirs(critic_loss_path)
+   
     print(args.sup)
 
     envs=[]
@@ -763,12 +750,10 @@ if __name__=='__main__':
             envs.append('0'+str(i))
         else:
             envs.append(str(i))
-    # random.seed(3407) 
-    random.shuffle(envs)
-    # random.seed(None)
-    # trainEnvs=envs[:15]
-    # trainenvs=['19', '16', '17', '10', '11', '03', '07', '08', '15', '02', '04', '14', '06', '09', '21']
-    # testEnvs=['20', '18', '13', '12', '05']
+    # random.shuffle(envs)
+
+    trainenvs=['12', '14', '18', '21', '08', '02', '05', '20', '19', '09', '16', '10', '03', '15', '17']
+    testEnvs=['06', '11', '07', '04', '13']
     print(store[0:-6])
     print(store[-6:])
     # testEnvs=envs[15:]
@@ -792,11 +777,13 @@ if __name__=='__main__':
     with open(os.path.join(store_path,'envsinfo.txt'),'w') as f:
         f.write('time:'+store+'\n'+'envs'+str(envs)+'\n trainEnvs:'+str(trainEnvs)+'\n testEnvs:'+str(testEnvs)+'\n'+' lr:'+str(args.lr)+' preload: '+str(args.preload)\
                 +' topN:'+str(args.topN)+' skip:'+str(args.skip)+' skip_info:' +str(args.low)+' '+str(args.high)+' '+str(args.skipN)+'\n'\
-                +'layers: '+str(args.layers)+'\nactorload: '+actor_load+'\n idFlag '+str(args.idFlag)+' itFlag: '+str(args.itFlag)+' thr: '+str(args.thr)+'\n'\
-                + 'fileNum: '+str(fileNum)+' restrict: '+str(args.restrict))
-        if args.sup!='50':
-            f.write('\n'+args.sup)
+                +'layers: '+str(args.layers)+'\nactorload: '+actor_load+'\n '+' itFlag: '+str(args.itFlag)+'\n'\
+                + 'fileNum: '+str(fileNum)+' restrict: '+str(args.restrict)+'\n')
+        for flag in AgentFlag:
+            if flag.value==args.agentFlag:
+                f.write(flag.name+'\n')
+                break
     train_epoch(agent, args.lr, args.epochs, args.batchsize,device,args.mode,store_path=store_path,multienvs=trainEnvs,testEnvs=testEnvs,\
                 remBlocskNum=args.rems,topN=args.topN,\
                 randLow=args.low,randHigh=args.high,randSize=args.skipN,skipFlag=args.skip,addPre=args.addPre,iterationFlag=args.itFlag,\
-                load=args.load,loadPath=actor_load,restrict=args.restrict,thr=args.thr)
+                load=args.load,loadPath=actor_load,restrict=args.restrict)
