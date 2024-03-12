@@ -378,11 +378,11 @@ def train_epoch(agent, lr, epochs, batch_size,device,mode,store_path=None,is_eva
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser()
-    parser.add_argument('-load_policy',type=str,default='5_policy_1last_move_5')
+    parser.add_argument('-load_policy',type=str,default='5_policy_1last_move5')
     parser.add_argument('-store',type=str,default='ddpg_2')
-    parser.add_argument('-load_critic',type=str,default='5_policy_1last_move_5')
+    parser.add_argument('-load_critic',type=str,default='5_policy_1last_move5')
     parser.add_argument('-cuda',type=str,default='cuda:3')
-    parser.add_argument('-mode',type=int,default=1)
+    parser.add_argument('-mode',type=int,default=2)
     parser.add_argument('-eval',type=bool,default=False)
     parser.add_argument('-net',type=int,default=1)
     parser.add_argument('-sup',type=str,default='50')
@@ -392,7 +392,7 @@ if __name__=='__main__':
     print(args.sup)
     if args.eval==False:
         actor_load=os.path.join('/home/wu_tian_ci/drl_project/mymodel/ddpg/pretrain_data/policy/',args.load_policy)
-        actor_load=os.path.join(actor_load,'1/5000_03/PolicyNet.pt')
+        actor_load=os.path.join(actor_load,'1/7000_07/PolicyNet.pt')
         agent.actor_net.online.load_state_dict(torch.load(actor_load))
         agent.actor_net.target.load_state_dict(torch.load(actor_load))
         # agent.critic_net.online.load_state_dict(torch.load(critic_load))

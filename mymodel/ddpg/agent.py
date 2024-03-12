@@ -202,6 +202,7 @@ class Critic_Net:
 class Actor_Net:
     def __init__(self, lr, tao, GAMMA,mode=1):
         if mode==2:
+            # 6,20,10,2,7,2
             self.target = ActorNet2(6,20,10,2,7,2)
             self.online = ActorNet2(6,20,10,2,7,2)
         else:
@@ -219,7 +220,7 @@ class Actor_Net:
 
 
 class Agent:
-    def __init__(self,buffer_maxlen=50000, lr=0.03, GAMMA=0.9,tao=0.9,mode=1):
+    def __init__(self,buffer_maxlen=50000, lr=0.03, GAMMA=0.9,tao=0.9,mode=2):
         if mode==1:
             self.memo = ReplayBuffer(buffer_maxlen)
         else:

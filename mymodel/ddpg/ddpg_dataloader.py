@@ -120,14 +120,6 @@ if __name__=='__main__':
             ...
     print(time.process_time()-begin_)
 
-    # k=0
-    # a=torch.ones(1,1,6)
-    # b=torch.ones(1,1,9)
-    # c=torch.ones(1,1,3)
-    # d=torch.ones(1,1,1)
-    # # print(a.shape)
-    # for a,b,c,d in dl3:
-    #     print(a.shape,b.shape,c.shape,d.shape)
 
 
 

@@ -210,7 +210,7 @@ if __name__ == "__main__":
     parser.add_argument('-train_file_path',type=str,default='5_policy_1last_move5')
     parser.add_argument('-nums',type=int,default='1')
     parser.add_argument('-net',type=str,default='net1')
-    parser.add_argument('-cuda',type=str,default='cuda:3')
+    parser.add_argument('-cuda',type=str,default='cuda:0')
     args=parser.parse_args()
     device = torch.device(args.cuda if torch.cuda.is_available() else 'cpu')
     print(device)

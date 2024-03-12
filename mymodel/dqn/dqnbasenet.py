@@ -171,7 +171,6 @@ class REMNet2(nn.Module):
         positionEmbed=self.positionEncoder(positionTensor)
         clickEmbed=(clickEmbed1+positionEmbed).view(len(lengths),1,-1)
 
-
         clickEncode=self.clickMLP(clickEmbed)
         newClickEmbed1=self.embedingClick(newClickList).squeeze(1)
         newPositionTensor=torch.tensor([0,1,2],dtype=torch.long).to(self.device)
