@@ -2,13 +2,11 @@ from typing import Any
 import torch
 from torch import nn
 import numpy as np
-from mymodel.ddpg.ddpg_base_net import *
 from dqnbasenet import *
 from dqnutils import *
 import dqnutils as UTILs
 
-from mymodel.ddpg.ddpg_pretrain_critic import *
-from mymodel.ddpg.ddpg_pretrain_policy import *
+
 def weight_init(m):
     random.seed(1114)
     np.random.seed(1114)
@@ -23,9 +21,6 @@ def weight_init(m):
     # torch.manual_seed(None)
     # random.seed(None)
     # np.random.seed(None)
-
-
-
 
 class Agent(object):
     def __init__(self,device,embed_n=32,output_n=13,num_layer=4,rnn_layer=2) -> None:
@@ -51,7 +46,6 @@ class Agent(object):
         action=maxAction.squeeze().cpu().detach().numpy()
         return action
     
-
 class RNNAgent(object):
 
     def __init__(self,device,embed_n=64,rnn_layer=10) -> None:
@@ -79,9 +73,6 @@ class RNNAgent(object):
         action=maxAction.squeeze().cpu().detach().numpy()
         return action
 
-        
-
-    
 class REMAgent(object):
     def __init__(self,device,embed_n=64,rnn_layer=10,networksNum=5) -> None:
         # device,embed_n=64,rnn_layer=10
@@ -119,7 +110,6 @@ class REMAgent(object):
         self.target.train()
         self.online.train()
 
-
 class REMAgent2(object):
     def __init__(self,device,flag,embed_n=128,rnn_layer=5,networksNum=5):
         # device,embed_n=64,rnn_layer=10
@@ -142,6 +132,7 @@ class REMAgent2(object):
         self.online.apply(weight_init).to(device)
         self.probs=[]
         self.device=device
+
 
     
     def load(self,loadPath):
@@ -173,7 +164,8 @@ class REMAgent2(object):
     def train(self):
         self.target.train()
         self.online.train()
-
+    def getState(self):
+        return self.online.getState()
 
 class PolicyAgent(object):
     def __init__(self,device,embed_n=128,rnn_layer=5,networksNum=5,flag=1):

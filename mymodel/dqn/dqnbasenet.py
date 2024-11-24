@@ -160,6 +160,8 @@ class REMNet2(nn.Module):
         for i in range(remBlocskNum):
             self.remBlocks.append(REMMultiBlock(embed_n*4,embed_n,embed_n*4,rnn_layer,out_c))
         self.embedNum=embed_n
+        self.midState=[]
+        self.lastState=[]
     
     # eyelist-> [[],[],[]] clicklist-> [] tensor->long lengths->tensor not to cuda
     # sequence first 
@@ -176,9 +178,9 @@ class REMNet2(nn.Module):
         newPositionTensor=torch.tensor([0,1,2],dtype=torch.long).to(self.device)
         positionEmbedNew=self.positionEncoder(newPositionTensor)
         newClickEmbed=(newClickEmbed1+positionEmbedNew).view(len(lengths),1,-1)
-
         newClickEncode=self.clickMLPN(newClickEmbed)
         eyeEmbed=self.embedingEye(eyeList).squeeze(1)
+        print('eye',eyeEmbed.shape)
         clickRepeat=clickEncode.repeat(1,eyeEmbed.shape[1],1)
         state=torch.cat([eyeEmbed,clickRepeat],dim=-1).to(self.device)
         statePack=torch.nn.utils.rnn.pack_padded_sequence(state,lengths,enforce_sorted=False,batch_first=True).to(self.device)
@@ -188,14 +190,22 @@ class REMNet2(nn.Module):
         actions1=actionPad[[i for i in range(lengths.shape[0])],lengths-1,:].unsqueeze(1)
         hn=torch.permute(hn,(1,0,2))
         hnM=hn.reshape((lengths.shape[0],1,-1))
+        print(actions1.shape,newClickEncode.shape,hnM.shape)
         actions2=torch.cat([actions1,newClickEncode,hnM],dim=-1)
+        print(actions2.shape)
         personPosition=self.personEmbed(person).squeeze(1)
         scenePosition=self.sceneEmbed(scene).squeeze(1)
         actions3=actions2+personPosition+scenePosition
         ansList=[]
+        self.midState=actions3.detach()
         for layer in self.remBlocks:
             ansList.append(layer(actions3))
+            self.lastState=ansList[-1].detach()
+        self.lastState=sum(self.lastState)/len(self.lastState)
         return ansList
+    
+    def getState(self):
+        return self.lastState,self.midState
 
 class REMNet2_NO_PID(nn.Module):
     def __init__(self,device,embed_n=64,rnn_layer=10,remBlocskNum=5):
@@ -602,7 +612,7 @@ class func2(nn.Module):
 
 if __name__=='__main__':
 # clickList,eyeList,newClickList,lengths,person,scene
-    a,b,c,d,e,f=torch.randint(0,10,(1,1,3)),torch.randint(0,10,(1,1,20)),torch.randint(0,10,(1,1,3)),\
+    a,b,c,d,e,f=torch.randint(0,10,(1,1,3)),torch.randint(0,10,(1,1,10)),torch.randint(0,10,(1,1,3)),\
         torch.randint(0,10,(1,)),torch.randint(0,10,(1,1,1)),torch.randint(0,10,(1,1,1))
     dqnnet=REMNet2(device='cuda:2',embed_n=128,rnn_layer=5,remBlocskNum=5)
     dqnnet.to('cuda:2')

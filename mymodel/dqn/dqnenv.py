@@ -2,12 +2,10 @@ import os
 import random
 import shutil
 import sys
-sys.path.append('/home/wu_tian_ci/drl_project')
-sys.path.append('/home/wu_tian_ci/drl_project/wtcutils')
+
 import pandas as pd
 from dqnutils import *
 import dqnutils as UTIL
-from mymodel.ddpg.ddpg_base_net import *
 
 s_path='/home/wu_tian_ci/eyedata/seperate'
 m_path='/home/wu_tian_ci/eyedata/mixed'

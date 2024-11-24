@@ -27,6 +27,7 @@ def weight_init(m):
     torch.manual_seed(3407)
     if isinstance(m, nn.Linear):
         nn.init.xavier_normal_(m.weight)
+        m.requires_grad=True
         if m.bias is not None:
             nn.init.constant_(m.bias, 0.0)
     elif isinstance(m, nn.LayerNorm):
