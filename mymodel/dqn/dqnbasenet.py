@@ -38,8 +38,11 @@ class PolicyModule(nn.Module):
 class REMMultiBlock(nn.Module):
     def __init__(self,inputNum,extraNum,outNum,layers,funNum) -> None:
         super(REMMultiBlock,self).__init__()
+        # MLP-Encoder
         self.encorder=PolicyModule(inputNum,extraNum,outNum,layers)
+        # value function
         self.valueFun=Classifier(funNum,1)
+        # advantage functino
         self.advFun=Classifier(funNum,13)
 
     def forward(self,actions):
@@ -131,15 +134,19 @@ class Classifier(nn.Module):
 class REMNet2(nn.Module):
     def __init__(self,device,embed_n=64,rnn_layer=10,remBlocskNum=5):
         super(REMNet2, self).__init__()
+        # feature extraction layer
         # self.embedNum=embed_n
         self.device=device
+        # gaze sequence embedding
         self.embedingEye=nn.Embedding(16,embed_n)
+        # operation sequence embedding
         self.embedingClick=nn.Embedding(12,embed_n)
         self.embedingEye.weight.requires_grad=False
         self.embedingClick.weight.requires_grad=False
         
-        # self.personMLP=nn.Sequential(nn.Linear(1,embed_n*4),nn.LayerNorm(embed_n*4),nn.GELU())
+        # User id embedding
         self.personEmbed=nn.Embedding(100,embed_n*4)
+        # task id embeding
         self.sceneEmbed=nn.Embedding(10,embed_n*4)
         self.personEmbed.weight.requires_grad=False
         self.sceneEmbed.weight.requires_grad=False
@@ -150,13 +157,14 @@ class REMNet2(nn.Module):
         self.positionEncoder=nn.Embedding(3,embed_n)
         self.positionEncoder.weight.requires_grad=False
         self.rnnLayer=rnn_layer
-        
+        # GRU layer
         self.rnn=torch.nn.GRU(embed_n*2,embed_n,2,batch_first=True)
 
         self.output=nn.Sequential(nn.LayerNorm(embed_n*2),nn.GELU(),nn.Linear(embed_n*2,13))
         self.encoder=PolicyModule(embed_n*4,embed_n,embed_n*4,rnn_layer)
         out_c=(rnn_layer+4)*embed_n
         self.remBlocks=nn.ModuleList()
+        # REM block / Deep Q Network
         for i in range(remBlocskNum):
             self.remBlocks.append(REMMultiBlock(embed_n*4,embed_n,embed_n*4,rnn_layer,out_c))
         self.embedNum=embed_n

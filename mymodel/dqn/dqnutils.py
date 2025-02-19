@@ -505,9 +505,7 @@ class DQNRNNTrajectory2(object):
         self.timeStamps=[]
 
     # TD(N) N->(0)
-
-
-    # 
+    # 得到 td 序列
     def getComTraZero(self):
         self.counting+=1
         traLen=len(self.newTras)
@@ -593,7 +591,8 @@ class DQNRNNTrajectory2(object):
         neyeList=torch.stack(neyeList,dim=0)
         lengths=lengths.reshape(-1)
         nlenghts=nlenghts.reshape(-1)
-        return clickList,eyeList,lastPList,lengths,personList,sceneList,goalList,actionList,rewardList,maskList,nclickList,neyeList,nlastPList,nlenghts,npersonList,nsceneList
+        return clickList,eyeList,lastPList,lengths,personList,sceneList,goalList,actionList,\
+        rewardList,maskList,nclickList,neyeList,nlastPList,nlenghts,npersonList,nsceneList
 
     # n-> n+1 steps
     # def getComTraN(self,N=2):

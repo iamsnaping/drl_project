@@ -19,8 +19,6 @@ sys.path.append('/home/wu_tian_ci/drl_project/mymodel/dqn')
 from dqnenv import *
 from dqnutils import *
 import dqnutils as UTIL
-import dqnbasenet
-import dqnagent
 import json
 from dqnagent import *
 import csv
@@ -448,13 +446,16 @@ class TrainModel(object):
                 for actS,index in zip(actions,indexes):
                     # print(actS)
                     pr.add(index,actS)
+                    #epsilon-greedy
                     prob=random.random()
                     if prob>EPOSILON:
                         trajectorys[index].tras[-1][3]=dp((actS))
                     else:
                         trajectorys[index].tras[-1][3]=random.randint(0,12)
                     if trajectorys[index].tras[-1][4]==0:
+                        # refresh trajectory
                         trajectorys[index].getNewTras()
+                        #  获得 trajectory 的数据 如 reward etc
                         traInfo=trajectorys[index].getInfo()
                         if traInfo[0]>1 and trainNums[index]>=OnlineConfig.PERSON_ENVS.value:
                             traLenOverOne+=traInfo[0]
@@ -530,9 +531,11 @@ class TrainModel(object):
                     onlineValues=sum(onlineValues)/len(onlineValues)
                     yAction=torch.argmax(onlineValues,dim=-1,keepdim=True)
                     targetValues=self.agent.target(nclickList,neyeList,nlastPList,nlengths,nperson,nscene)
+                    # REM
                     for i in range(self.remBlocskNum):
                         targetValues[i]=targetValues[i]*deltaP[i]
                     targetValues=sum(targetValues)
+                    
                     y=targetValues.gather(dim=-1,index=yAction)*maskList+rewardList
                 values=self.agent.online(clickList,eyeList,lastPList,lengths,person,scene)
                 for i in range(self.remBlocskNum):
@@ -772,8 +775,6 @@ def sendData():
         model.best_scores*=0.8
     return response
     
-
-
 
 @app.route('/excuteOrder',methods=['post','get'])
 def excuteOrder():

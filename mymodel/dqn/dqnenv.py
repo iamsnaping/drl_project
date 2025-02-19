@@ -2,10 +2,11 @@ import os
 import random
 import shutil
 import sys
-
+sys.path.append("/home/wu_tian_ci/drl_project")
 import pandas as pd
-from dqnutils import *
-import dqnutils as UTIL
+from mymodel.dqn.dqnutils import *
+import mymodel.dqn.dqnutils as UTIL
+
 
 s_path='/home/wu_tian_ci/eyedata/seperate'
 m_path='/home/wu_tian_ci/eyedata/mixed'

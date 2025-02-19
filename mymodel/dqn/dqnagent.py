@@ -111,7 +111,7 @@ class REMAgent(object):
         self.online.train()
 
 class REMAgent2(object):
-    def __init__(self,device,flag,embed_n=128,rnn_layer=5,networksNum=5):
+    def __init__(self,device,flag=UTILs.AgentFlag.REMNet2.value,embed_n=128,rnn_layer=5,networksNum=5):
         # device,embed_n=64,rnn_layer=10
         if flag==UTILs.AgentFlag.REMNet2.value:
             self.target=REMNet2(embed_n=embed_n,rnn_layer=rnn_layer,device=device,remBlocskNum=networksNum)
